@@ -1,16 +1,20 @@
 const std = @import("std");
 const ComponentBuffer = @import("componentBuffer.zig").ComponentBuffer;
+const Bitset = @import("componentManager.zig").Bitset;
+const Entity = @import("entity.zig");
 const typeId = @import("typeId.zig").typeId;
 
 pub const Archetype = struct {
-    entities: std.ArrayList(u32),
-    components: std.ArrayList(std.ArrayList(u32)),
+    bitset: Bitset,
+    entities: std.ArrayList(Entity),
+    components: std.ArrayList(ComponentBuffer),
+    hashMap: std.AutoHashMap(u64, u64),
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Archetype {
         return .{
             .entities = std.ArrayList(u32).init(allocator),
-            .cBuffers = std.ArrayList(std.ArrayList(u32)).init(allocator),
+            .cBuffers = std.ArrayList(ComponentBuffer).init(allocator),
             .allocator = allocator,
         };
     }
