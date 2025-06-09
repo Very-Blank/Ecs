@@ -1,12 +1,8 @@
-pub const TypeId = *const struct {
-    _: u8,
-};
+pub fn typeId(comptime T: type) u64 {
+    _ = T;
+    const H = struct {
+        var byte: u8 = 0;
+    };
 
-pub inline fn get(comptime T: type) TypeId {
-    return &struct {
-        comptime {
-            _ = T;
-        }
-        var id: @typeInfo(TypeId).pointer.child = undefined;
-    }.id;
+    return @intFromPtr(&H.byte);
 }

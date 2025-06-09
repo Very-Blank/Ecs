@@ -1,23 +1,16 @@
 const std = @import("std");
-const ComponentList = @import("componentList.zig").ComponentList;
-const typeId = @import("typeId.zig");
+const ComponentBuffer = @import("componentBuffer.zig").ComponentBuffer;
+const typeId = @import("typeId.zig").typeId;
 
 pub const Archetype = struct {
     entities: std.ArrayList(u32),
-    cBuffers: std.ArrayList(ComponentList), // Type-erased component buffers
+    components: std.ArrayList(std.ArrayList(u32)),
     allocator: std.mem.Allocator,
-
-    // Component metadata storage
-    const ComponentInfo = struct {
-        size: usize, // Size of component type in bytes
-        alignment: usize, // Alignment requirement
-        id: typeId.TypeId, // Unique type identifier
-    };
 
     pub fn init(allocator: std.mem.Allocator) Archetype {
         return .{
             .entities = std.ArrayList(u32).init(allocator),
-            .cBuffers = std.ArrayList(ComponentList).init(allocator),
+            .cBuffers = std.ArrayList(std.ArrayList(u32)).init(allocator),
             .allocator = allocator,
         };
     }
@@ -28,33 +21,23 @@ pub const Archetype = struct {
         self.cBuffers.deinit();
     }
 
-    // Add new component storage to archetype
-    pub fn registerComponent(self: *Archetype, comptime T: type) !void {
-        try self.cBuffers.append(try ComponentList.init(T, self.allocator));
-    }
-
-    // Get component buffer by type
-    pub fn getComponentBuffer(self: *Archetype, comptime T: type) !*ComponentList {
-        const target = typeId.get(T);
-        for (0..self.cBuffers.items.len) |i| {
-            if (self.cBuffers.items[i].typeId == target) {
-                return &self.cBuffers.items[i];
-            }
-        }
-
-        return error.ComponentNotRegistered;
-    }
+    // // Add new component storage to archetype
+    // pub fn registerComponent(self: *Archetype, comptime T: type) !void {
+    //     try self.cBuffers.append(try ComponentBuffer.init(T, self.allocator));
+    // }
+    //
+    // // Get component buffer by type
+    // pub fn getComponentBuffer(self: *Archetype, comptime T: type) !*ComponentBuffer {
+    //     const target = typeId(T);
+    //     for (0..self.cBuffers.items.len) |i| {
+    //         if (self.cBuffers.items[i].typeId == target) {
+    //             return &self.cBuffers.items[i];
+    //         }
+    //     }
+    //
+    //     return error.ComponentNotRegistered;
+    // }
 };
-
-//A Small trick
-// fn typeId(comptime T: type) u64 {
-//     _ = T;
-//     const H = struct {
-//         var byte: u8 = 0;
-//     };
-//
-//     return @intFromPtr(&H.byte);
-// }
 
 // https://github.com/ziglang/zig/issues/19858#issuecomment-2369861301
 // const TypeId = *const struct {
