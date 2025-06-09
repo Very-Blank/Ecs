@@ -5,8 +5,8 @@ const Archetype = @import("archetype.zig").Archetype;
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
 pub const Position = struct {
-    y: u32,
     x: u32,
+    y: u32,
 };
 
 pub fn main() !void {
@@ -26,5 +26,15 @@ pub fn main() !void {
     try archetype.registerComponent(Position);
 
     const positions = try archetype.getComponentBuffer(Position);
-    try positions.append(.{ .x = 10, .y = 20 });
+    try positions.append(Position, .{ .x = 10, .y = 20 });
+    try positions.append(Position, .{ .x = 38, .y = 3434 });
+    try positions.append(Position, .{ .x = 868, .y = 44 });
+
+    const position: *Position = positions.get(Position, 0);
+    position.*.x = 500;
+    position.*.y = 40000;
+    positions.remove(0);
+
+    std.debug.print("{any}\n", .{positions.get(Position, 0)});
+    std.debug.print("{any}\n", .{positions.get(Position, 1)});
 }
