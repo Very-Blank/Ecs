@@ -2,27 +2,37 @@ const std = @import("std");
 const ComponentBuffer = @import("componentBuffer.zig").ComponentBuffer;
 const Bitset = @import("componentManager.zig").Bitset;
 const Entity = @import("entity.zig");
-const typeId = @import("typeId.zig").typeId;
+
+const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList();
+
+const List = std.ArrayListUnmanaged;
 
 pub const Archetype = struct {
     bitset: Bitset,
-    entities: std.ArrayList(Entity),
-    components: std.ArrayList(ComponentBuffer),
-    hashMap: std.AutoHashMap(u64, u64),
-    allocator: std.mem.Allocator,
+    // entities: List(Entity),
+    components: std.AutoArrayHashMapUnmanaged(u64, ErasedArrayList),
+    // hashMap: std.AutoHashMap(u64, u64),
+    // allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) Archetype {
-        return .{
-            .entities = std.ArrayList(u32).init(allocator),
-            .cBuffers = std.ArrayList(ComponentBuffer).init(allocator),
+    /// Components, must be sorted
+    pub fn init(entity: Entity, components: List(ErasedArrayList), bitset: Bitset, allocator: std.mem.Allocator) !Archetype {
+        var archetype = Archetype{
+            .bitset = bitset,
+            .entities = try std.ArrayListUnmanaged(Entity).initCapacity(allocator, 1),
+            .components = components,
             .allocator = allocator,
         };
+
+        errdefer archetype.entities.deinit(allocator);
+        archetype.entities.append(entity);
+
+        return archetype;
     }
 
-    pub fn deinit(self: *Archetype) void {
-        self.entities.deinit();
-        for (self.cBuffers.items) |*array| array.deinit();
-        self.cBuffers.deinit();
+    pub fn deinit(self: *Archetype, allocator: std.mem.Allocator) void {
+        self.entities.deinit(allocator);
+        for (self.components.items) |*array| array.deinit(allocator);
+        self.components.deinit();
     }
 
     // // Add new component storage to archetype
