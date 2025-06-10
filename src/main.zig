@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const Archetype = @import("archetype.zig").Archetype;
-const typeId = @import("typeId.zig");
 
 var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
 
@@ -29,10 +28,6 @@ pub fn main() !void {
     var positions = erasedPositions.cast(Position);
     try positions.append(allocator, .{ .x = 100, .y = 100 });
 
-    std.debug.print("u32: {any}\n", .{@intFromPtr(typeId.get(u32))});
-    std.debug.print("f32: {any}\n", .{@intFromPtr(typeId.get(f32))});
-    std.debug.print("f32: {any}\n", .{@intFromPtr(typeId.get(f32))});
-    std.debug.print("u64: {any}\n", .{@intFromPtr(typeId.get(u64))});
     std.debug.print("positions.items[0] = {any}\n", .{positions.items[0]});
 
     // var archetype = Archetype.init(allocator);

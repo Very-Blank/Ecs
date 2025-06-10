@@ -1,44 +1,35 @@
 const std = @import("std");
 const Component = @import("component.zig").Component;
-const typeId = @import("typeId.zig").typeId;
+const ULandType = @import("uLandType.zig").ULandType;
 
 const MAX_COMPONENTS = 32;
 pub const Bitset = std.bit_set.StaticBitSet(MAX_COMPONENTS);
 
-const ComponentManager = struct {
-    components: std.ArrayList(Component),
-    hashMap: std.AutoHashMap(u64, u64),
+const List = std.ArrayListUnmanaged;
+const HashMap = std.AutoHashMapUnmanaged;
+const Allocator = std.mem.Allocator;
 
-    pub fn init(allocator: std.mem.Allocator) !ComponentManager {
+const ComponentManager = struct {
+    components: List(u64),
+    hashMap: HashMap(u64, u32),
+
+    pub fn init(allocator: Allocator) !ComponentManager {
         return .{
-            .components = try std.ArrayList(Component).init(allocator),
-            .hashMap = try std.AutoHashMap(u64, u64).init(allocator),
+            .components = try List(u64).initCapacity(allocator, 4),
+            .hashMap = .empty,
         };
     }
 
-    pub fn deinit(self: *ComponentManager) void {
-        self.components.deinit();
-        self.hashMap.deinit();
+    pub fn deinit(self: *ComponentManager, allocator: Allocator) void {
+        self.components.deinit(allocator);
+        self.hashMap.deinit(allocator);
     }
 
-    pub fn registerComponent(self: *ComponentManager, comptime T: type) !void {
+    pub fn registerComponent(self: *ComponentManager, allocator: Allocator, comptime T: type) !void {
         if (MAX_COMPONENTS < self.components.items.len + 1) return error.MaxComponentsReached;
-        try self.components.append(Component.new(T));
-    }
-
-    pub fn getComponentById(self: *ComponentManager, i: u64) Component {
-        // NOTE: Asserts rather than returns error because a faulty error is really bad BUG!
-        std.debug.assert(i < self.components.items.len);
-        return self.components.items[i];
-    }
-
-    pub fn getComponentByType(self: *ComponentManager, comptime T: type) Component {
-        const cTypeId = typeId(T);
-        return if (self.hashMap.get(cTypeId)) |index| return self.components.items[index] else return error.ComponentNotRegistered;
-    }
-
-    pub fn getComponentByTypeId(self: *ComponentManager, cTypeId: u64) !Component {
-        return if (self.hashMap.get(cTypeId)) |index| return self.components.items[index] else return error.ComponentNotRegistered;
+        const hash = ULandType.getHash(T);
+        try self.components.append(hash);
+        try self.hashMap.put(allocator, hash, self.components.items.len - 1);
     }
 
     pub fn getBitset(self: *ComponentManager, typeIds: []u64) !Bitset {
