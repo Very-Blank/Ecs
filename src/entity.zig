@@ -10,8 +10,3 @@ pub const Entity = struct {
     id: u32,
     generation: u16,
 };
-
-pub const UnusedEntity = struct {
-    id: u32,
-    generation: u16,
-};
