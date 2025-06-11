@@ -1,19 +1,20 @@
 const std = @import("std");
 const Bitset = @import("componentManager.zig").Bitset;
+const Component = @import("componentManager.zig").Component;
 const Entity = @import("entity.zig");
 
 const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList();
-
-const List = std.ArrayListUnmanaged;
 const HashMap = std.AutoArrayHashMapUnmanaged;
 
 pub const Archetype = struct {
     bitset: Bitset,
-    components: HashMap(u32, ErasedArrayList),
+    sparse: std.ArrayListUnmanaged(Component),
+    dense: std.ArrayListUnmanaged(ErasedArrayList),
 
-    pub fn init(components: HashMap(ErasedArrayList), bitset: Bitset) !Archetype {
+    pub fn init(bitset: Bitset, allocator: std.mem.Allocator) !Archetype {
         return Archetype{
             .bitset = bitset,
+            .sparse = 
             .components = components,
         };
     }

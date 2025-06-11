@@ -1,5 +1,4 @@
 const std = @import("std");
-const Component = @import("component.zig").Component;
 const ULandType = @import("uLandType.zig").ULandType;
 
 const MAX_COMPONENTS = 32;
@@ -9,9 +8,20 @@ const List = std.ArrayListUnmanaged;
 const HashMap = std.AutoHashMapUnmanaged;
 const Allocator = std.mem.Allocator;
 
+pub const Component = enum(u8) {
+    _,
+    pub inline fn make(@"u32": u8) Component {
+        return @enumFromInt(@"u32");
+    }
+
+    pub inline fn value(@"enum": Component) u8 {
+        return @intFromEnum(@"enum");
+    }
+};
+
 const ComponentManager = struct {
     components: List(u64),
-    hashMap: HashMap(u64, u32),
+    hashMap: HashMap(u64, Component),
 
     pub fn init(allocator: Allocator) !ComponentManager {
         return .{
