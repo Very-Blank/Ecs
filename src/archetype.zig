@@ -4,7 +4,7 @@ const Component = @import("componentManager.zig").Component;
 const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
 const Entity = @import("entity.zig").Entity;
 
-const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList();
+const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList;
 
 const Allocator = std.mem.Allocator;
 
@@ -22,10 +22,8 @@ pub const Archetype = struct {
         dense: std.ArrayListUnmanaged(ErasedArrayList),
         allocator: Allocator,
     ) !Archetype {
-        var entities: std.ArrayListUnmanaged(Entity) = .empty;
-        try entities.append(allocator, entity);
         return Archetype{
-            .entities = entities,
+            .entities = try std.ArrayListUnmanaged(Entity).empty.append(allocator, entity),
             .bitset = bitset,
             .sparse = sparse,
             .dense = dense,
@@ -36,7 +34,7 @@ pub const Archetype = struct {
         entity: Entity,
         comptime T: type,
         component: T,
-        componentId: Component,
+        id: Component,
         allocator: Allocator,
     ) !Archetype {
         var entities: std.ArrayListUnmanaged(Entity) = .empty;
@@ -44,18 +42,19 @@ pub const Archetype = struct {
         errdefer entities.deinit(allocator);
 
         var bitset: Bitset = Bitset.initEmpty();
-        bitset.set(componentId.value());
+        bitset.set(id.value());
 
         var sparse: [MAX_COMPONENTS]u8 = .{0} ** MAX_COMPONENTS;
-        sparse[componentId.value()] = 0;
+        sparse[id.value()] = 1;
 
-        ErasedArrayList.init();
+        const list = try ErasedArrayList.initWithElement(T, component, id, allocator);
+        errdefer list.deinit(allocator);
 
         return Archetype{
             .entities = entities,
             .bitset = bitset,
             .sparse = sparse,
-            .dense = dense,
+            .dense = try std.ArrayListUnmanaged(ErasedArrayList).empty.append(allocator, list),
         };
     }
 

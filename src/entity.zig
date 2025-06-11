@@ -15,7 +15,31 @@ pub const Entity = enum(u32) {
     }
 };
 
+pub const Row = enum(u32) {
+    _,
+
+    pub inline fn make(@"u32": u32) Row {
+        return @enumFromInt(@"u32");
+    }
+
+    pub inline fn value(@"enum": Row) u32 {
+        return @intFromEnum(@"enum");
+    }
+};
+
+pub const Archetype = enum(u16) {
+    _,
+
+    pub inline fn make(@"u16": u16) Row {
+        return @enumFromInt(@"u16");
+    }
+
+    pub inline fn value(@"enum": Row) u16 {
+        return @intFromEnum(@"enum");
+    }
+};
+
 pub const Pointer = struct {
-    row: u32,
-    archetype: u16,
+    row: Row,
+    archetype: Archetype,
 };

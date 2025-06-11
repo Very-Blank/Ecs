@@ -1,120 +1,97 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const ULandType = @import("uLandType.zig").ULandType;
 
 const Allocator = std.mem.Allocator;
-const List = std.ArrayListUnmanaged;
+const Component = @import("componentManager.zig").Component;
+const Row = @import("entity.zig").Row;
 
-pub fn ErasedArrayList() type {
-    switch (builtin.mode) {
-        .Debug, .ReleaseSafe => .{
-            return struct {
-                /// NOTE: DEBUG info on the actual type
-                type: ULandType,
-                /// Pointer to the actual list
-                ptr: *anyopaque,
-                pop: *const fn (self: *Self, i: u32, _allocator: Allocator) Self,
-                transfer: *const fn (self: *Self, _allocator: Allocator) Self,
-                deinit: *const fn (self: *Self, _allocator: Allocator) void,
-                /// Components ID
-                id: u32,
-                const Self = @This();
-                pub fn init(comptime T: type, id: u32, allocator: Allocator) !Self {
-                    const newPtr = try allocator.create(List(T));
-                    errdefer allocator.destroy(newPtr);
-                    newPtr.* = List(T).empty;
-                    return Self{
-                        .type = ULandType.get(T),
-                        .id = id,
-                        .ptr = newPtr,
-                        .pop = (struct {
-                            pub fn pop(self: *Self, i: u32, _allocator: Allocator) !Self {
-                                var oldList = self.cast(T);
-                                const eNewList = try Self.init(T, self.id, _allocator);
-                                errdefer _allocator.destroy(newPtr);
-                                var newList = eNewList.cast(T);
-                                try newList.append(oldList.orderedRemove(i));
-                                return newList;
-                            }
-                        }).popup,
-                        .transfer = (struct {
-                            pub fn transfer(self: *Self, other: *Self, i: u32, _allocator: Allocator) !Self {
-                                std.debug.assert(self.type.eql(other.type.*));
-                                var sList = self.cast(T);
-                                var oList = other.cast(T);
-                                try oList.append(_allocator, sList.orderedRemove(i));
-                            }
-                        }).transfer,
-                        .deinit = (struct {
-                            pub fn deinit(self: *Self, _allocator: Allocator) void {
-                                var ptr = self.cast(T);
-                                ptr.deinit(_allocator);
-                                _allocator.destroy(ptr);
-                            }
-                        }).deinit,
-                    };
-                }
-                pub fn initWithElement(comptime T: type, component id: u32, allocator: Allocator){}
-                pub fn append(self: *Self, comptime T: type, component: T, allocator: Allocator) *List(T) {
-                    self.cast(T).append(allocator, component);
-                }
-                pub fn cast(self: *Self, comptime T: type) *List(T) {
-                    std.debug.assert(self.type.eql(ULandType.get(T)));
-                    return @as(*List(T), @ptrCast(@alignCast(self.ptr)));
-                }
-            },
-        },
-        .ReleaseFast, .ReleaseSmall => .{
-            return struct {
-                /// Pointer to the actual list
-                ptr: *anyopaque,
-                pop: *const fn (self: *Self, i: u32, _allocator: Allocator) Self,
-                transfer: *const fn (self: *Self, _allocator: Allocator) Self,
-                deinit: *const fn (self: *Self, _allocator: Allocator) void,
-                /// Components ID
-                id: u32,
-                const Self = @This();
-                pub fn init(comptime T: type, id: u32, allocator: Allocator) Self {
-                    const newPtr = try allocator.create(List(T));
-                    errdefer allocator.destroy(newPtr);
-                    newPtr.* = List(T).empty;
-                    return Self{
-                        .id = id,
-                        .ptr = newPtr,
-                        .pop = (struct {
-                            pub fn pop(self: *Self, i: u32, _allocator: Allocator) !Self {
-                                var oldList = self.cast(T);
-                                const eNewList = try Self.init(T, self.id, _allocator);
-                                var newList = eNewList.cast(T);
-                                try newList.append(oldList.orderedRemove(i));
-                                return newList;
-                            }
-                        }).popup,
-                        .transfer = (struct {
-                            pub fn transfer(self: *Self, other: *Self, i: u32, _allocator: Allocator) !Self {
-                                var sList = self.cast(T);
-                                var oList = other.cast(T);
-                                try oList.append(_allocator, sList.orderedRemove(i));
-                            }
-                        }).transfer,
-                        .deinit = (struct {
-                            pub fn deinit(self: *Self, _allocator: Allocator) void {
-                                var ptr = self.cast(T);
-                                ptr.deinit(_allocator);
-                                _allocator.destroy(ptr);
-                            }
-                        }).deinit,
-                    };
-                }
-                pub fn append(self: *Self, comptime T: type, component: T, allocator: Allocator) *List(T) {
-                    self.cast(T).append(allocator, component);
-                }
-                pub fn cast(self: *Self, comptime T: type) *List(T) {
-                    return @as(*List(T), @ptrCast(@alignCast(self.ptr)));
-                }
-            },
-        },
+pub const ErasedArrayList = struct {
+    ptr: *anyopaque,
+    pop: *const fn (self: *ErasedArrayList, i: Row, allocator: Allocator) ErasedArrayList,
+    transfer: *const fn (self: *ErasedArrayList, allocator: Allocator) ErasedArrayList,
+    // orderedRemove: *const fn (self: *ErasedArrayList, i: Row) void,
+    swapRemove: *const fn (self: *ErasedArrayList, i: Row) void,
+    deinit: *const fn (self: *ErasedArrayList, allocator: Allocator) void,
+    id: Component,
+
+    pub fn init(comptime T: type, id: Component, allocator: Allocator) !ErasedArrayList {
+        const newPtr = try allocator.create(std.ArrayListUnmanaged(T));
+        errdefer allocator.destroy(newPtr);
+        newPtr.* = std.ArrayListUnmanaged.empty;
+
+        const functionPtrs = ErasedArrayList.getFunctionPtrs(T);
+
+        return ErasedArrayList{
+            .ptr = newPtr,
+            .pop = functionPtrs.pop,
+            .transfer = functionPtrs.transfer,
+            .deinit = functionPtrs.deinit,
+            .id = id,
+        };
     }
-}
+
+    pub fn initWithElement(comptime T: type, component: T, id: Component, allocator: Allocator) !ErasedArrayList {
+        const newPtr = try allocator.create(std.ArrayListUnmanaged(T));
+        errdefer allocator.destroy(newPtr);
+        newPtr.* = std.ArrayListUnmanaged.empty;
+        try newPtr.append(allocator, component);
+
+        const functionPtrs = ErasedArrayList.getFunctionPtrs(T);
+
+        return ErasedArrayList{
+            .ptr = newPtr,
+            .pop = functionPtrs.pop,
+            .transfer = functionPtrs.transfer,
+            .deinit = functionPtrs.deinit,
+            .id = id,
+        };
+    }
+
+    pub fn getFunctionPtrs(comptime T: type) struct {
+        pop: *const fn (self: *ErasedArrayList, i: Row, allocator: Allocator) ErasedArrayList,
+        transfer: *const fn (self: *ErasedArrayList, allocator: Allocator) ErasedArrayList,
+        deinit: *const fn (self: *ErasedArrayList, allocator: Allocator) void,
+    } {
+        return struct {
+            pub fn pop(self: *ErasedArrayList, i: Row, allocator: Allocator) !ErasedArrayList {
+                return try ErasedArrayList.initWithElement(
+                    T,
+                    self.cast(T).orderedRemove(i.value()),
+                    self.id,
+                    allocator,
+                );
+            }
+
+            // pub fn orderedRemove(self: *ErasedArrayList, i: Row) void {
+            //     _ = self.cast(T).orderedRemove(i.value());
+            // }
+
+            pub fn swapRemove(self: *ErasedArrayList, i: Row) void {
+                _ = self.cast(T).swapRemove(i.value());
+            }
+
+            pub fn transfer(self: *ErasedArrayList, other: *ErasedArrayList, i: Row, allocator: Allocator) !ErasedArrayList {
+                try other.cast(T).append(
+                    allocator,
+                    self.cast(T).orderedRemove(i.value()),
+                );
+            }
+
+            pub fn deinit(self: *ErasedArrayList, allocator: Allocator) void {
+                var ptr = self.cast(T);
+                ptr.deinit(allocator);
+                allocator.destroy(ptr);
+            }
+        };
+    }
+
+    pub fn append(self: *ErasedArrayList, comptime T: type, component: T, allocator: Allocator) *std.ArrayListUnmanaged(T) {
+        self.cast(T).append(allocator, component);
+    }
+
+    pub fn cast(self: *ErasedArrayList, comptime T: type) *std.ArrayListUnmanaged(T) {
+        return @as(*std.ArrayListUnmanaged(T), @ptrCast(@alignCast(self.ptr)));
+    }
+};
 
 // const ErasedArrayList = struct {};
