@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const Allocator = std.mem.Allocator;
 const ULandType = @import("uLandType.zig").ULandType;
 
+const Allocator = std.mem.Allocator;
 const List = std.ArrayListUnmanaged;
 
 pub fn ErasedArrayList() type {

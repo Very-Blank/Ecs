@@ -7,17 +7,12 @@ const Bitset = @import("componentManager.zig").Bitset;
 
 const MAX_ENTITIES = 5000;
 
-const MultiList = std.MultiArrayList;
-const List = std.ArrayListUnmanaged;
-const HashMap = std.AutoHashMapUnmanaged;
 const Allocator = std.mem.Allocator;
 
 const EntityManager = struct {
+    unused: std.ArrayListUnmanaged(Entity),
+    archetypes: std.ArrayListUnmanaged(Archetype),
     len: u32,
-    unused: MultiList(Entity),
-    archetypes: List(Archetype),
-    entitys: HashMap(u32, Pointer),
-    archebitset: HashMap(Bitset, u16),
 
     pub fn addComponentExistingE(self: *EntityManager, comptime T: type, component: T, entity: Entity, componentId: u32, allocator: Allocator) !void {
         var pointer = if (self.getPointer(entity)) |pointer| pointer else unreachable;

@@ -1,7 +1,7 @@
 const std = @import("std");
 const ULandType = @import("uLandType.zig").ULandType;
 
-const MAX_COMPONENTS = 32;
+pub const MAX_COMPONENTS = 32;
 pub const Bitset = std.bit_set.StaticBitSet(MAX_COMPONENTS);
 
 const List = std.ArrayListUnmanaged;
@@ -10,8 +10,8 @@ const Allocator = std.mem.Allocator;
 
 pub const Component = enum(u8) {
     _,
-    pub inline fn make(@"u32": u8) Component {
-        return @enumFromInt(@"u32");
+    pub inline fn make(@"u8": u8) Component {
+        return @enumFromInt(@"u8");
     }
 
     pub inline fn value(@"enum": Component) u8 {
