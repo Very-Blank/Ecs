@@ -18,5 +18,4 @@ pub const Entity = enum(u32) {
 pub const Pointer = struct {
     row: u32,
     archetype: u16,
-    generation: u16,
 };

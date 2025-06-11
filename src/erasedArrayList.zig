@@ -21,7 +21,8 @@ pub fn ErasedArrayList() type {
                 const Self = @This();
                 pub fn init(comptime T: type, id: u32, allocator: Allocator) !Self {
                     const newPtr = try allocator.create(List(T));
-                    newPtr.* = try List(T).initCapacity(allocator, 1);
+                    errdefer allocator.destroy(newPtr);
+                    newPtr.* = List(T).empty;
                     return Self{
                         .type = ULandType.get(T),
                         .id = id,
@@ -30,6 +31,7 @@ pub fn ErasedArrayList() type {
                             pub fn pop(self: *Self, i: u32, _allocator: Allocator) !Self {
                                 var oldList = self.cast(T);
                                 const eNewList = try Self.init(T, self.id, _allocator);
+                                errdefer _allocator.destroy(newPtr);
                                 var newList = eNewList.cast(T);
                                 try newList.append(oldList.orderedRemove(i));
                                 return newList;
@@ -52,6 +54,7 @@ pub fn ErasedArrayList() type {
                         }).deinit,
                     };
                 }
+                pub fn initWithElement(comptime T: type, component id: u32, allocator: Allocator){}
                 pub fn append(self: *Self, comptime T: type, component: T, allocator: Allocator) *List(T) {
                     self.cast(T).append(allocator, component);
                 }
@@ -73,7 +76,8 @@ pub fn ErasedArrayList() type {
                 const Self = @This();
                 pub fn init(comptime T: type, id: u32, allocator: Allocator) Self {
                     const newPtr = try allocator.create(List(T));
-                    newPtr.* = List(T).initCapacity(allocator, 1);
+                    errdefer allocator.destroy(newPtr);
+                    newPtr.* = List(T).empty;
                     return Self{
                         .id = id,
                         .ptr = newPtr,

@@ -4,6 +4,7 @@ const Archetype = @import("archetype.zig").Archetype;
 const Entity = @import("entity.zig").Entity;
 const Pointer = @import("entity.zig").Pointer;
 const Bitset = @import("componentManager.zig").Bitset;
+const Component = @import("componentManager.zig").Component;
 
 const MAX_ENTITIES = 5000;
 
@@ -12,24 +13,38 @@ const Allocator = std.mem.Allocator;
 const EntityManager = struct {
     unused: std.ArrayListUnmanaged(Entity),
     archetypes: std.ArrayListUnmanaged(Archetype),
+
+    entityIds: std.AutoHashMapUnmanaged(Entity, Pointer),
+    archetypeIds: std.AutoHashMapUnmanaged(Bitset, u16),
+
     len: u32,
 
-    pub fn addComponentExistingE(self: *EntityManager, comptime T: type, component: T, entity: Entity, componentId: u32, allocator: Allocator) !void {
-        var pointer = if (self.getPointer(entity)) |pointer| pointer else unreachable;
-        const archetype: Archetype = self.archetypes.items[pointer.archetype];
+    pub fn addComponent(
+        self: *EntityManager,
+        entity: Entity,
+        comptime T: type,
+        component: T,
+        componentId: Component,
+        allocator: Allocator,
+    ) !void {
+        if (self.getPointer(entity)) |pointer| {
+            const oldArchetype: Archetype = self.archetypes.items[pointer.archetype];
+            var newBitset: Bitset = oldArchetype.bitset;
+            newBitset.set(componentId);
 
-        if (self.archebitset.get(archetype.bitset)) |index| {
-            const tArchetype = self.archetypes.items[index];
-            // pointer.row = tArchetype.components.entries.len;
-            try tArchetype.components.get(componentId).?.append(T, component, allocator);
-            const iterator = archetype.components.valueIterator();
+            if (self.archetypeIds.get(newBitset)) |newArchetypeId| {
+                const newArchetype = self.archetypes.items[newArchetypeId];
+            } else {}
+        } else {
+            var newBitset: Bitset = Bitset.initEmpty();
+            newBitset.set(componentId);
 
-            while (iterator.next()) |eList| {
-                var tEList = tArchetype.components.get(eList.id).?;
-                eList.transfer(&eList, &tEList, pointer.row, allocator);
+            if (self.archetypeIds.get(newBitset)) |newArchetypeId| {
+                const newArchetype = self.archetypes.items[newArchetypeId];
+            } else {
+                var newArhcetype: Archetype = Archetype.init();
+                self.archetypes.append();
             }
-
-            //TOODO move all other components
         }
     }
 
@@ -48,7 +63,7 @@ const EntityManager = struct {
     }
 
     pub inline fn getPointer(self: *EntityManager, entity: Entity) ?Pointer {
-        std.debug.assert(entity.id < self.len);
-        return self.entitys.get(entity.id);
+        std.debug.assert(entity.value() < self.len);
+        return self.entitys.get(entity.value());
     }
 };
