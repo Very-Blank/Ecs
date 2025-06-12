@@ -27,7 +27,7 @@ pub const Row = enum(u32) {
     }
 };
 
-pub const Archetype = enum(u16) {
+pub const ArchetypeId = enum(u16) {
     _,
 
     pub inline fn make(@"u16": u16) Row {
@@ -41,5 +41,5 @@ pub const Archetype = enum(u16) {
 
 pub const Pointer = struct {
     row: Row,
-    archetype: Archetype,
+    archetype: ArchetypeId,
 };

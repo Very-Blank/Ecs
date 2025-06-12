@@ -2,6 +2,7 @@ const std = @import("std");
 const Archetype = @import("archetype.zig").Archetype;
 
 const Entity = @import("entity.zig").Entity;
+const ArchetypeId = @import("entity.zig").ArchetypeId;
 const Pointer = @import("entity.zig").Pointer;
 const Bitset = @import("componentManager.zig").Bitset;
 const Component = @import("componentManager.zig").Component;
@@ -15,7 +16,7 @@ const EntityManager = struct {
     archetypes: std.ArrayListUnmanaged(Archetype),
 
     entityIds: std.AutoHashMapUnmanaged(Entity, Pointer),
-    archetypeIds: std.AutoHashMapUnmanaged(Bitset, u16),
+    archetypeIds: std.AutoHashMapUnmanaged(Bitset, ArchetypeId),
 
     len: u32,
 
@@ -24,25 +25,28 @@ const EntityManager = struct {
         entity: Entity,
         comptime T: type,
         component: T,
-        componentId: Component,
+        id: Component,
         allocator: Allocator,
     ) !void {
         if (self.getPointer(entity)) |pointer| {
             const oldArchetype: Archetype = self.archetypes.items[pointer.archetype];
             var newBitset: Bitset = oldArchetype.bitset;
-            newBitset.set(componentId);
+            newBitset.set(id.value());
 
             if (self.archetypeIds.get(newBitset)) |newArchetypeId| {
                 const newArchetype = self.archetypes.items[newArchetypeId];
             } else {}
         } else {
             var newBitset: Bitset = Bitset.initEmpty();
-            newBitset.set(componentId);
+            newBitset.set(id.value());
 
             if (self.archetypeIds.get(newBitset)) |newArchetypeId| {
                 const newArchetype = self.archetypes.items[newArchetypeId];
             } else {
-                var newArhcetype: Archetype = Archetype.init();
+                var newArhcetype: Archetype = Archetype.initNew(
+                    entity,
+                    component,
+                );
                 self.archetypes.append();
             }
         }
