@@ -1,10 +1,13 @@
 const std = @import("std");
+
 const Bitset = @import("componentManager.zig").Bitset;
 const Component = @import("componentManager.zig").Component;
-const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
-const Entity = @import("entity.zig").Entity;
 
+const Entity = @import("entity.zig").Entity;
+const Row = @import("entity.zig").Row;
 const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList;
+
+const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
 
 const Allocator = std.mem.Allocator;
 
@@ -15,16 +18,46 @@ pub const Archetype = struct {
     sparse: [MAX_COMPONENTS]u8,
     dense: std.ArrayListUnmanaged(ErasedArrayList),
 
-    pub fn init(
+    /// Transfers all of this archetypes components and adds a new one.
+    pub fn initTransfer(
+        self: *Archetype,
         entity: Entity,
-        bitset: Bitset,
-        sparse: [MAX_COMPONENTS]u8,
-        dense: std.ArrayListUnmanaged(ErasedArrayList),
+        row: Row,
+        comptime T: type,
+        component: T,
+        id: Component,
         allocator: Allocator,
     ) !Archetype {
+        var entities: std.ArrayListUnmanaged(Entity) = .empty;
+        try entities.append(allocator, entity);
+        errdefer entities.deinit(allocator);
+
+        var dense: std.ArrayListUnmanaged(ErasedArrayList) = try .initCapacity(allocator, self.dense.items.len + 1);
+        errdefer dense.deinit(allocator);
+
+        for (self.dense.items) |list| {
+            try dense.append(allocator, try list.pop(row, allocator));
+        }
+
+        try dense.append(try ErasedArrayList.initWithElement(T, component, id, allocator));
+
+        errdefer {
+            for (dense.items) |list| {
+                list.deinit(allocator);
+            }
+
+            dense.deinit(allocator);
+        }
+
+        var sparse: [MAX_COMPONENTS]u8 = self.sparse;
+        sparse[id.value()] = dense.items.len - 1;
+
+        var bitset: Bitset = self.bitset;
+        bitset.set(id.value());
+
         return Archetype{
             .entities = try std.ArrayListUnmanaged(Entity).empty.append(allocator, entity),
-            .bitset = bitset,
+            .bitset = self.bitset,
             .sparse = sparse,
             .dense = dense,
         };

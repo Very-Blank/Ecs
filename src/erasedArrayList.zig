@@ -7,8 +7,8 @@ const Row = @import("entity.zig").Row;
 
 pub const ErasedArrayList = struct {
     ptr: *anyopaque,
-    pop: *const fn (self: *ErasedArrayList, i: Row, allocator: Allocator) ErasedArrayList,
-    transfer: *const fn (self: *ErasedArrayList, allocator: Allocator) ErasedArrayList,
+    pop: *const fn (self: *ErasedArrayList, i: Row, allocator: Allocator) Allocator.Error!ErasedArrayList,
+    transfer: *const fn (self: *ErasedArrayList, allocator: Allocator) Allocator.Error!ErasedArrayList,
     // orderedRemove: *const fn (self: *ErasedArrayList, i: Row) void,
     swapRemove: *const fn (self: *ErasedArrayList, i: Row) void,
     deinit: *const fn (self: *ErasedArrayList, allocator: Allocator) void,

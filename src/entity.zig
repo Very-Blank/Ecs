@@ -15,6 +15,8 @@ pub const Entity = enum(u32) {
     }
 };
 
+pub const Unused = enum(u32) { _ };
+
 pub const Row = enum(u32) {
     _,
 
