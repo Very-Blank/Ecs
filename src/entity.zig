@@ -1,47 +1,45 @@
 const std = @import("std");
 
-pub const Entity = enum(u32) {
-    invalid = 0,
+pub const Entity = struct { pointerId: IndexType, generation: GenerationType };
+
+pub const IndexType = enum(u16) {
     _,
 
-    pub inline fn make(@"u32": u32) Entity {
-        std.debug.assert(@"u32" != 0);
+    pub inline fn make(@"u32": u16) IndexType {
         return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": Entity) u32 {
-        std.debug.assert(@"enum" != .invalid);
+    pub inline fn value(@"enum": IndexType) u16 {
         return @intFromEnum(@"enum");
     }
 };
 
-pub const Unused = enum(u32) { _ };
-
-pub const Row = enum(u32) {
+pub const ArchetypeType = enum(u8) {
     _,
 
-    pub inline fn make(@"u32": u32) Row {
-        return @enumFromInt(@"u32");
+    pub inline fn make(@"u8": u8) ArchetypeType {
+        return @enumFromInt(@"u8");
     }
 
-    pub inline fn value(@"enum": Row) u32 {
+    pub inline fn value(@"enum": ArchetypeType) u8 {
         return @intFromEnum(@"enum");
     }
 };
 
-pub const ArchetypeId = enum(u16) {
+const GenerationType = enum(u8) {
     _,
 
-    pub inline fn make(@"u16": u16) Row {
-        return @enumFromInt(@"u16");
+    pub inline fn make(@"u8": u8) GenerationType {
+        return @enumFromInt(@"u8");
     }
 
-    pub inline fn value(@"enum": Row) u16 {
+    pub inline fn value(@"enum": GenerationType) u8 {
         return @intFromEnum(@"enum");
     }
 };
 
 pub const Pointer = struct {
-    row: Row,
-    archetype: ArchetypeId,
+    rowId: IndexType,
+    generation: GenerationType,
+    archetype: ArchetypeType,
 };

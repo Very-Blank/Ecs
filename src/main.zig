@@ -9,7 +9,7 @@ pub const Position = struct {
     y: u32,
 };
 
-const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList();
+const ErasedArrayList = @import("erasedArrayList.zig").ErasedArray();
 
 pub fn main() !void {
     const allocator: std.mem.Allocator, const is_debug: bool = gpa: {

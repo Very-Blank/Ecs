@@ -4,25 +4,28 @@ const Bitset = @import("componentManager.zig").Bitset;
 const Component = @import("componentManager.zig").Component;
 
 const Entity = @import("entity.zig").Entity;
-const Row = @import("entity.zig").Row;
-const ErasedArrayList = @import("erasedArrayList.zig").ErasedArrayList;
+const IndexType = @import("entity.zig").IndexType;
+const ErasedArrayList = @import("erasedArrayList.zig").ErasedArray;
 
 const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
 
 const Allocator = std.mem.Allocator;
 
+const ComponentRow = enum(u16) { _ };
+
 pub const Archetype = struct {
-    // when removing, swap the end and with the removing element, then pop the end and change the entity pointer for "old" end.
-    entities: std.ArrayListUnmanaged(Entity),
     bitset: Bitset,
     sparse: [MAX_COMPONENTS]u8,
     dense: std.ArrayListUnmanaged(ErasedArrayList),
 
-    /// Transfers all of this archetypes components and adds a new one.
+    rowIdToComponentRow: std.AutoHashMapUnmanaged(IndexType, ComponentRow),
+    componentRowTorowId: std.AutoHashMapUnmanaged(ComponentRow, IndexType),
+
+    /// Transfers all of entity's components to a new archetype and adds a new component
     pub fn initTransfer(
         self: *Archetype,
         entity: Entity,
-        row: Row,
+        row: IndexType,
         comptime T: type,
         component: T,
         id: Component,
@@ -88,6 +91,44 @@ pub const Archetype = struct {
             .bitset = bitset,
             .sparse = sparse,
             .dense = try std.ArrayListUnmanaged(ErasedArrayList).empty.append(allocator, list),
+        };
+    }
+
+    /// Transfer entity's components to other archetype and adding one component
+    pub fn transferAdd(
+        self: *Archetype,
+        other: *Archetype,
+        row: IndexType,
+        comptime T: type,
+        component: T,
+        id: Component,
+        allocator: std.mem.Allocator,
+    ) void {
+        for (self.dense.items) |list| {
+            try list.transfer(&other.dense.items[other.sparse[list.id]], allocator);
+        }
+
+        try dense.append(try ErasedArrayList.initWithElement(T, component, id, allocator));
+
+        errdefer {
+            for (dense.items) |list| {
+                list.deinit(allocator);
+            }
+
+            dense.deinit(allocator);
+        }
+
+        var sparse: [MAX_COMPONENTS]u8 = self.sparse;
+        sparse[id.value()] = dense.items.len - 1;
+
+        var bitset: Bitset = self.bitset;
+        bitset.set(id.value());
+
+        return Archetype{
+            .entities = try std.ArrayListUnmanaged(Entity).empty.append(allocator, entity),
+            .bitset = self.bitset,
+            .sparse = sparse,
+            .dense = dense,
         };
     }
 
