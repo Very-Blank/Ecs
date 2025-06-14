@@ -31,6 +31,7 @@ pub const EntityManager = struct {
 
     pub fn deinit(self: *EntityManager, allocator: std.mem.Allocator) void {
         self.unused.deinit(allocator);
+        for (self.archetypes.items) |*archetype| archetype.deinit(allocator);
         self.archetypes.deinit(allocator);
         self.entityMap.deinit(allocator);
         self.archetypeMap.deinit(allocator);

@@ -33,12 +33,12 @@ pub const ComponentManager = struct {
     }
 
     pub fn registerComponent(self: *ComponentManager, allocator: Allocator, comptime T: type) ComponentType {
-        std.debug.assert(MAX_COMPONENTS < self.components.items.len + 1);
+        std.debug.assert(self.components.items.len + 1 <= MAX_COMPONENTS);
         const hash = ULandType.getHash(T);
         self.components.append(allocator, hash) catch unreachable;
-        self.hashMap.put(allocator, hash, self.components.items.len - 1) catch unreachable;
+        self.hashMap.put(allocator, hash, ComponentType.make(@intCast(self.components.items.len - 1))) catch unreachable;
 
-        return ComponentType.make(self.components.items.len - 1);
+        return ComponentType.make(@intCast(self.components.items.len - 1));
     }
 
     pub fn getBitsetForTuple(self: *ComponentManager, comptime T: type, allocator: Allocator) Bitset {
@@ -56,6 +56,8 @@ pub const ComponentManager = struct {
             },
             else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
         }
+
+        return bitset;
     }
 
     // pub fn getBitset(self: *ComponentManager, T: []u64) !Bitset {

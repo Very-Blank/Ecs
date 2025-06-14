@@ -22,8 +22,12 @@ pub fn main() !void {
         std.debug.print("Debug allocator: {any}\n", .{debug_allocator.deinit()});
     };
 
-    const ecs: Ecs = .init(allocator);
-    _ = ecs;
+    var ecs: Ecs = .init(allocator);
+    _ = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 1, .y = 3 },
+    });
+
+    ecs.deinit();
 
     // var archetype = Archetype.init(allocator);
     // defer archetype.deinit();

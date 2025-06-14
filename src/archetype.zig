@@ -32,7 +32,8 @@ pub const Archetype = struct {
     componentMap: std.AutoHashMapUnmanaged(ComponentType, u32),
 
     pub fn deinit(self: *Archetype, allocator: std.mem.Allocator) void {
-        for (self.componentArrays.items) |*array| array.deinit(allocator);
+        for (self.componentArrays.items) |*array| array.deinit(array, allocator);
+        self.componentArrays.deinit(allocator);
         self.entityToRowMap.deinit(allocator);
         self.rowToEntityMap.deinit(allocator);
         self.componentMap.deinit(allocator);

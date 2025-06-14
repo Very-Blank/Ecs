@@ -11,51 +11,25 @@ pub const ErasedArray = struct {
     deinit: *const fn (self: *ErasedArray, allocator: Allocator) void,
     id: ComponentType,
 
-    pub fn init(comptime T: type, id: ComponentType, allocator: Allocator) ErasedArray {
-        const newPtr = allocator.create(std.ArrayListUnmanaged(T)) catch unreachable;
-        newPtr.* = std.ArrayListUnmanaged.empty;
-        const functionPtrs = ErasedArray.getFunctionPtrs(T);
+    pub fn init(comptime T: type, id: ComponentType, allocator: Allocator) !ErasedArray {
+        const newPtr = try allocator.create(std.ArrayListUnmanaged(T));
+        newPtr.* = std.ArrayListUnmanaged(T).empty;
 
         return ErasedArray{
             .handle = newPtr,
-            .pop = functionPtrs.pop,
-            .transfer = functionPtrs.transfer,
-            .deinit = functionPtrs.deinit,
+            .swapRemove = (struct {
+                pub fn swapRemove(self: *ErasedArray, i: IndexType) void {
+                    _ = self.cast(T).swapRemove(i.value());
+                }
+            }).swapRemove,
+            .deinit = (struct {
+                pub fn deinit(self: *ErasedArray, _allocator: Allocator) void {
+                    var ptr = self.cast(T);
+                    ptr.deinit(_allocator);
+                    _allocator.destroy(ptr);
+                }
+            }).deinit,
             .id = id,
-        };
-    }
-
-    pub fn initWithElement(comptime T: type, component: T, id: ComponentType, allocator: Allocator) ErasedArray {
-        const newPtr = allocator.create(std.ArrayListUnmanaged(T)) catch unreachable;
-        errdefer allocator.destroy(newPtr);
-        newPtr.* = std.ArrayListUnmanaged.empty;
-        newPtr.append(allocator, component) catch unreachable;
-
-        const functionPtrs = ErasedArray.getFunctionPtrs(T);
-
-        return ErasedArray{
-            .handle = newPtr,
-            .pop = functionPtrs.pop,
-            .transfer = functionPtrs.transfer,
-            .deinit = functionPtrs.deinit,
-            .id = id,
-        };
-    }
-
-    pub fn getFunctionPtrs(comptime T: type) struct {
-        swapRemove: *const fn (self: *ErasedArray, i: IndexType) void,
-        deinit: *const fn (self: *ErasedArray, allocator: Allocator) void,
-    } {
-        return struct {
-            pub fn swapRemove(self: *ErasedArray, i: IndexType) void {
-                _ = self.cast(T).swapRemove(i.value());
-            }
-
-            pub fn deinit(self: *ErasedArray, allocator: Allocator) void {
-                var ptr = self.cast(T);
-                ptr.deinit(allocator);
-                allocator.destroy(ptr);
-            }
         };
     }
 
