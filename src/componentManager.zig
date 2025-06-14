@@ -7,43 +7,41 @@ pub const Bitset = std.bit_set.StaticBitSet(MAX_COMPONENTS);
 const List = std.ArrayListUnmanaged;
 const Allocator = std.mem.Allocator;
 
-pub const Component = enum(u8) {
+pub const ComponentType = enum(u32) {
     _,
-    pub inline fn make(@"u8": u8) Component {
-        return @enumFromInt(@"u8");
+    pub inline fn make(@"u32": u32) ComponentType {
+        return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": Component) u8 {
+    pub inline fn value(@"enum": ComponentType) u32 {
         return @intFromEnum(@"enum");
     }
 };
 
 pub const ComponentManager = struct {
     components: std.ArrayListUnmanaged(u64),
-    hashMap: std.AutoHashMapUnmanaged(u64, Component),
+    hashMap: std.AutoHashMapUnmanaged(u64, ComponentType),
 
-    pub fn init(allocator: Allocator) !ComponentManager {
-        return .{
-            .components = try std.ArrayListUnmanaged(u64).initCapacity(allocator, 4),
-            .hashMap = .empty,
-        };
-    }
+    pub const init = ComponentManager{
+        .components = .empty,
+        .hashMap = .empty,
+    };
 
     pub fn deinit(self: *ComponentManager, allocator: Allocator) void {
         self.components.deinit(allocator);
         self.hashMap.deinit(allocator);
     }
 
-    pub fn registerComponent(self: *ComponentManager, allocator: Allocator, comptime T: type) Component {
+    pub fn registerComponent(self: *ComponentManager, allocator: Allocator, comptime T: type) ComponentType {
         std.debug.assert(MAX_COMPONENTS < self.components.items.len + 1);
         const hash = ULandType.getHash(T);
         self.components.append(allocator, hash) catch unreachable;
         self.hashMap.put(allocator, hash, self.components.items.len - 1) catch unreachable;
 
-        return Component.make(self.components.items.len - 1);
+        return ComponentType.make(self.components.items.len - 1);
     }
 
-    pub fn getBitsetForTuple(self: *ComponentManager, T: type, allocator: Allocator) Bitset {
+    pub fn getBitsetForTuple(self: *ComponentManager, comptime T: type, allocator: Allocator) Bitset {
         var bitset = Bitset.initEmpty();
         switch (@typeInfo(T)) {
             .@"struct" => |@"struct"| {

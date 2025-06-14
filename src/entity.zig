@@ -1,45 +1,47 @@
 const std = @import("std");
 
-pub const Entity = struct { pointerId: IndexType, generation: GenerationType };
-
-pub const IndexType = enum(u16) {
+pub const EntityType = enum(u32) {
     _,
 
-    pub inline fn make(@"u32": u16) IndexType {
+    pub inline fn make(@"u32": u32) EntityType {
         return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": IndexType) u16 {
+    pub inline fn value(@"enum": EntityType) u32 {
         return @intFromEnum(@"enum");
     }
 };
 
-pub const ArchetypeType = enum(u8) {
+pub const ArchetypeType = enum(u32) {
     _,
 
-    pub inline fn make(@"u8": u8) ArchetypeType {
-        return @enumFromInt(@"u8");
+    pub inline fn make(@"u32": u32) ArchetypeType {
+        return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": ArchetypeType) u8 {
+    pub inline fn value(@"enum": ArchetypeType) u32 {
         return @intFromEnum(@"enum");
     }
 };
 
-const GenerationType = enum(u8) {
+pub const GenerationType = enum(u32) {
     _,
 
-    pub inline fn make(@"u8": u8) GenerationType {
-        return @enumFromInt(@"u8");
+    pub inline fn make(@"u32": u32) GenerationType {
+        return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": GenerationType) u8 {
+    pub inline fn value(@"enum": GenerationType) u32 {
         return @intFromEnum(@"enum");
     }
 };
 
-pub const Pointer = struct {
-    rowId: IndexType,
+pub const SlimPointer = struct {
+    entity: EntityType,
     generation: GenerationType,
+};
+
+pub const FatPointer = struct {
     archetype: ArchetypeType,
+    generation: GenerationType,
 };
