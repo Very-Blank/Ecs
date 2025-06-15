@@ -39,7 +39,7 @@ pub fn main() !void {
         Position{ .x = 1, .y = 3 },
     });
 
-    try ecs.destroyEntity(entity);
+    ecs.destroyEntity(entity);
 
     std.debug.print("component count {any}\n", .{ecs.componentManager.components.items.len});
     std.debug.print("archetype count {any}\n", .{ecs.entityManager.archetypes.items.len});

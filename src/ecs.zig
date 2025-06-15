@@ -99,38 +99,47 @@ pub const Ecs = struct {
     }
 
     /// SlimPointer becomes invalid!
-    pub fn destroyEntity(self: *Ecs, slimPointer: SlimPointer) !void {
-        if (self.entityManager.entityMap.get(slimPointer.entity)) |fatPointer| {
-            if (slimPointer.generation != fatPointer.generation) return error.DifferentGenerations;
+    pub fn destroyEntity(self: *Ecs, slimPointer: SlimPointer) void {
+        const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
+        std.debug.assert(slimPointer.generation == fatPointer.generation);
 
-            const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
+        const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
 
-            const row = archetype.entityToRowMap.get(slimPointer.entity).?;
+        const row = archetype.entityToRowMap.get(slimPointer.entity).?;
 
-            for (archetype.componentArrays.items) |*array| {
-                array.swapRemove(array, row);
-            }
-
-            if (archetype.components == 1) {
-                archetype.entityToRowMap.clearAndFree(self.allocator);
-                archetype.rowToEntityMap.clearAndFree(self.allocator);
-            } else {
-                _ = archetype.rowToEntityMap.remove(Row.make(archetype.components - 1));
-                _ = archetype.entityToRowMap.remove(slimPointer.entity);
-
-                const entity = archetype.rowToEntityMap.get(Row.make(archetype.components - 1)).?;
-                archetype.entityToRowMap.put(self.allocator, entity, row) catch unreachable;
-                archetype.rowToEntityMap.put(self.allocator, row, entity) catch unreachable;
-            }
-
-            archetype.components -= 1;
-
-            _ = self.entityManager.entityMap.swapRemove(slimPointer.entity);
-            self.entityManager.unused.append(self.allocator, slimPointer) catch unreachable;
-
-            return;
+        for (archetype.componentArrays.items) |*array| {
+            array.swapRemove(array, row);
         }
 
-        return error.EntityDidNotExist;
+        if (archetype.components == 1) {
+            archetype.entityToRowMap.clearAndFree(self.allocator);
+            archetype.rowToEntityMap.clearAndFree(self.allocator);
+        } else {
+            const entity = archetype.rowToEntityMap.get(Row.make(archetype.components - 1)).?;
+
+            _ = archetype.rowToEntityMap.remove(Row.make(archetype.components - 1));
+            _ = archetype.entityToRowMap.remove(slimPointer.entity);
+
+            archetype.entityToRowMap.put(self.allocator, entity, row) catch unreachable;
+            archetype.rowToEntityMap.put(self.allocator, row, entity) catch unreachable;
+        }
+
+        archetype.components -= 1;
+
+        _ = self.entityManager.entityMap.swapRemove(slimPointer.entity);
+        self.entityManager.unused.append(self.allocator, slimPointer) catch unreachable;
+    }
+
+    pub fn getEntityComponent(self: *Ecs, slimPointer: SlimPointer, comptime T: type) *T {
+        const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
+        std.debug.assert(slimPointer.generation == fatPointer.generation);
+
+        const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
+
+        const componentId = self.componentManager.hashMap.get(ULandType.getHash(T)).?;
+        const componentArrayIndex: u32 = archetype.componentMap.get(componentId).?;
+        const row: Row = archetype.entityToRowMap.get(slimPointer.entity).?;
+
+        return &archetype.componentArrays.items[componentArrayIndex].cast(T).items[row.value()];
     }
 };
