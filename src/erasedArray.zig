@@ -3,11 +3,11 @@ const builtin = @import("builtin");
 
 const Allocator = std.mem.Allocator;
 const ComponentType = @import("componentManager.zig").ComponentType;
-const IndexType = @import("archetype.zig").Row;
+const Row = @import("archetype.zig").Row;
 
 pub const ErasedArray = struct {
     handle: *anyopaque,
-    swapRemove: *const fn (self: *ErasedArray, i: IndexType) void,
+    swapRemove: *const fn (self: *ErasedArray, i: Row) void,
     deinit: *const fn (self: *ErasedArray, allocator: Allocator) void,
     id: ComponentType,
 
@@ -18,7 +18,7 @@ pub const ErasedArray = struct {
         return ErasedArray{
             .handle = newPtr,
             .swapRemove = (struct {
-                pub fn swapRemove(self: *ErasedArray, i: IndexType) void {
+                pub fn swapRemove(self: *ErasedArray, i: Row) void {
                     _ = self.cast(T).swapRemove(i.value());
                 }
             }).swapRemove,

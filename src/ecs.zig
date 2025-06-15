@@ -41,9 +41,9 @@ pub const Ecs = struct {
                 if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
                 const bitset = self.componentManager.getBitsetForTuple(T, self.allocator);
 
+                // Get new entity unused or new one.
                 const slimPointer: SlimPointer = self.entityManager.getNewEntity();
 
-                // Get new entity unused or new one.
                 if (self.entityManager.archetypeMap.get(bitset)) |archetypeId| {
                     const archetype: *Archetype = &self.entityManager.archetypes.items[archetypeId.value()];
 
@@ -98,7 +98,39 @@ pub const Ecs = struct {
         }
     }
 
-    // pub fn destroyEntity(self: *Ecs, slimPointer: SlimPointer) !void {
-    //
-    // }
+    /// SlimPointer becomes invalid!
+    pub fn destroyEntity(self: *Ecs, slimPointer: SlimPointer) !void {
+        if (self.entityManager.entityMap.get(slimPointer.entity)) |fatPointer| {
+            if (slimPointer.generation != fatPointer.generation) return error.DifferentGenerations;
+
+            const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
+
+            const row = archetype.entityToRowMap.get(slimPointer.entity).?;
+
+            for (archetype.componentArrays.items) |*array| {
+                array.swapRemove(array, row);
+            }
+
+            if (archetype.components == 1) {
+                archetype.entityToRowMap.clearAndFree(self.allocator);
+                archetype.rowToEntityMap.clearAndFree(self.allocator);
+            } else {
+                _ = archetype.rowToEntityMap.remove(Row.make(archetype.components - 1));
+                _ = archetype.entityToRowMap.remove(slimPointer.entity);
+
+                const entity = archetype.rowToEntityMap.get(Row.make(archetype.components - 1)).?;
+                archetype.entityToRowMap.put(self.allocator, entity, row) catch unreachable;
+                archetype.rowToEntityMap.put(self.allocator, row, entity) catch unreachable;
+            }
+
+            archetype.components -= 1;
+
+            _ = self.entityManager.entityMap.swapRemove(slimPointer.entity);
+            self.entityManager.unused.append(self.allocator, slimPointer) catch unreachable;
+
+            return;
+        }
+
+        return error.EntityDidNotExist;
+    }
 };
