@@ -43,13 +43,9 @@ pub const Ecs = struct {
 
                 const slimPointer: SlimPointer = self.entityManager.getNewEntity();
 
-                var archetype: *Archetype = undefined;
-                var archetypeId: ArchetypeType = undefined;
-
                 // Get new entity unused or new one.
-                if (self.entityManager.archetypeMap.get(bitset)) |id| {
-                    archetypeId = id;
-                    archetype = &self.entityManager.archetypes.items[archetypeId.value()];
+                if (self.entityManager.archetypeMap.get(bitset)) |archetypeId| {
+                    const archetype: *Archetype = &self.entityManager.archetypes.items[archetypeId.value()];
 
                     inline for (componets, 0..) |component, i| {
                         const componentId = self.componentManager.hashMap.get(ULandType.getHash(@"struct".fields[i].type)).?;
@@ -57,43 +53,52 @@ pub const Ecs = struct {
 
                         array.append(self.allocator, component) catch unreachable;
                     }
+
+                    archetype.entityToRowMap.put(self.allocator, slimPointer.entity, Row.make(archetype.components)) catch unreachable;
+                    archetype.rowToEntityMap.put(self.allocator, Row.make(archetype.components), slimPointer.entity) catch unreachable;
+                    archetype.components += 1;
+
+                    self.entityManager.entityMap.put(self.allocator, slimPointer.entity, FatPointer{ .archetype = archetypeId, .generation = slimPointer.generation }) catch unreachable;
+
+                    return slimPointer;
                 } else {
-                    var componentMap: std.AutoHashMapUnmanaged(ComponentType, u32) = .empty;
-                    var componentArrays: std.ArrayListUnmanaged(ErasedArray) = .empty;
+                    self.entityManager.archetypes.append(self.allocator, Archetype{
+                        .bitset = bitset,
+                        .componentArrays = .empty,
+                        .components = 0,
+
+                        .entityToRowMap = std.AutoHashMapUnmanaged(EntityType, Row).empty,
+                        .rowToEntityMap = std.AutoHashMapUnmanaged(Row, EntityType).empty,
+                        .componentMap = .empty,
+                    }) catch unreachable;
+
+                    const archetype: *Archetype = &self.entityManager.archetypes.items[self.entityManager.archetypes.items.len - 1];
+                    const archetypeId = ArchetypeType.make(@intCast(self.entityManager.archetypes.items.len - 1));
 
                     inline for (componets, 0..) |component, i| {
                         const componentId = self.componentManager.hashMap.get(ULandType.getHash(@"struct".fields[i].type)).?;
                         var array: ErasedArray = ErasedArray.init(@"struct".fields[i].type, componentId, self.allocator) catch unreachable;
                         array.cast(@"struct".fields[i].type).append(self.allocator, component) catch unreachable;
-                        componentArrays.append(self.allocator, array) catch unreachable;
-                        componentMap.put(self.allocator, componentId, @intCast(componentArrays.items.len - 1)) catch unreachable;
+                        archetype.componentArrays.append(self.allocator, array) catch unreachable;
+                        archetype.componentMap.put(self.allocator, componentId, @intCast(archetype.componentArrays.items.len - 1)) catch unreachable;
                     }
 
-                    self.entityManager.archetypes.append(self.allocator, Archetype{
-                        .bitset = bitset,
-                        .componentArrays = componentArrays,
-                        .components = 0,
+                    self.entityManager.archetypeMap.put(self.allocator, bitset, archetypeId) catch unreachable;
 
-                        .entityToRowMap = std.AutoHashMapUnmanaged(EntityType, Row).empty,
-                        .rowToEntityMap = std.AutoHashMapUnmanaged(Row, EntityType).empty,
-                        .componentMap = componentMap,
-                    }) catch unreachable;
+                    archetype.entityToRowMap.put(self.allocator, slimPointer.entity, Row.make(archetype.components)) catch unreachable;
+                    archetype.rowToEntityMap.put(self.allocator, Row.make(archetype.components), slimPointer.entity) catch unreachable;
+                    archetype.components += 1;
 
-                    archetypeId = ArchetypeType.make(@intCast(self.entityManager.archetypes.items.len - 1));
-                    archetype = &self.entityManager.archetypes.items[archetypeId.value()];
+                    self.entityManager.entityMap.put(self.allocator, slimPointer.entity, FatPointer{ .archetype = archetypeId, .generation = slimPointer.generation }) catch unreachable;
+
+                    return slimPointer;
                 }
-
-                archetype.entityToRowMap.put(self.allocator, slimPointer.entity, Row.make(archetype.components)) catch unreachable;
-                archetype.rowToEntityMap.put(self.allocator, Row.make(archetype.components), slimPointer.entity) catch unreachable;
-                archetype.components += 1;
-
-                self.entityManager.entityMap.put(self.allocator, slimPointer.entity, FatPointer{ .archetype = archetypeId, .generation = slimPointer.generation }) catch unreachable;
-
-                return slimPointer;
             },
             else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
         }
     }
 
-    // pub fn destroyEntity(entity: Entity) !void {}
+    // pub fn destroyEntity(self: *Ecs, slimPointer: SlimPointer) !void {
+    //
+    // }
 };
