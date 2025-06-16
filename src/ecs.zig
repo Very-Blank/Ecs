@@ -142,4 +142,13 @@ pub const Ecs = struct {
 
         return &archetype.componentArrays.items[componentArrayIndex].cast(T).items[row.value()];
     }
+
+    pub fn getTypeMatchingIterators(comptime T: type, componets: T) struct {} {
+        switch (@typeInfo(T)) {
+            .@"struct" => |@"struct"| {
+                if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
+            },
+            else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+        }
+    }
 };
