@@ -180,6 +180,41 @@ pub const Ecs = struct {
         }
     }
 
+    /// Gets all archetypes that have the exact match of componets as the type
+    /// Remember to call deinit on the iterator.
+    pub fn getComponentIteratorsEql(self: *Ecs, comptime T: type) ?iterator.TupleOfIterators(T) {
+        switch (@typeInfo(T)) {
+            .@"struct" => |@"struct"| {
+                if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
+                var bitset: Bitset = Bitset.initEmpty();
+
+                var tuple: iterator.TupleOfArrayLists(T) = undefined;
+
+                inline for (@"struct".fields, 0..) |field, i| {
+                    tuple[i] = .empty;
+
+                    const componentId = if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |componentId| componentId else return null;
+                    bitset.set(componentId.value());
+                }
+
+                for (self.entityManager.archetypes.items) |*archetype| {
+                    if (bitset.eql(archetype.bitset)) {
+                        inline for (@"struct".fields, 0..) |field, i| {
+                            const componentId = self.componentManager.hashMap.get(ULandType.getHash(field.type)).?;
+                            tuple[i].append(self.allocator, archetype.componentArrays.items[archetype.componentMap.get(componentId).?].cast(field.type).items) catch unreachable;
+                        }
+                    }
+                }
+
+                var iterators: iterator.TupleOfIterators(T) = undefined;
+                inline for (@"struct".fields, 0..) |field, i| iterators[i] = iterator.Iterator(field.type).init(tuple[i].toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+
+                return iterators;
+            },
+            else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+        }
+    }
+
     // Gets all archetypes that only have the components in the tuple and returns them as iterators.
     // Remember to call deinit on the iterator.
     // pub fn getComponentIteratorsExactMatch(self: *Ecs, comptime T: type) ?struct {} {
