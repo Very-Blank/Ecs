@@ -1,6 +1,7 @@
 const std = @import("std");
 const Ecs = @import("ecs.zig").Ecs;
 const Row = @import("archetype.zig").Row;
+const Iterator = @import("iterator.zig").Iterator;
 
 pub const Position = struct {
     x: u32,
@@ -52,6 +53,15 @@ test "Creating a new entity" {
     try std.testing.expectEqual(1, ecs.entityManager.archetypes.items[0].bitset.mask);
     try std.testing.expectEqual(3, ecs.entityManager.archetypes.items[1].bitset.mask);
     try std.testing.expectEqual(2, ecs.entityManager.archetypes.items[2].bitset.mask);
+
+    var iterators: struct { Iterator(Velocity) } = ecs.getComponentIteratorsMatch(struct { Velocity }).?;
+    defer inline for (iterators) |iterator| iterator.deinit();
+    var i: u64 = 1;
+    while (true) : (i += 1) {
+        const vel: Velocity, const next = iterators[0].next();
+        _ = vel;
+        if (!next) break;
+    }
 }
 
 test "Removing an entity" {
