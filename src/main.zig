@@ -1,3 +1,3 @@
-const Ecs = @import("ecs.zig").Ecs;
-const SlimPointer = @import("entity.zig").SlimPointer;
-const Iterator = @import("iterator.zig").Iterator;
+pub const Ecs = @import("ecs.zig").Ecs;
+pub const SlimPointer = @import("entity.zig").SlimPointer;
+pub const Iterator = @import("iterator.zig").Iterator;
