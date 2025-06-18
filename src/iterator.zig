@@ -79,8 +79,8 @@ pub fn Iterator(comptime T: type) type {
 
         /// Returns the next value in the buffers and whether or not there is next value.
         /// If there is no next value next() will return the last element in the buffers.
-        pub fn next(self: *Self) struct { T, bool } {
-            const value = self.buffers[self.currentBuffer][self.currentIndex];
+        pub fn next(self: *Self) struct { *T, bool } {
+            const value: *T = &self.buffers[self.currentBuffer][self.currentIndex];
 
             if (self.currentIndex + 1 < self.buffers[self.currentBuffer].len) {
                 self.currentIndex += 1;
