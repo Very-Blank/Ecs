@@ -110,7 +110,7 @@ pub const Ecs = struct {
         const row = archetype.entityToRowMap.get(slimPointer.entity).?;
 
         for (archetype.componentArrays.items) |*array| {
-            array.swapRemove(array, row);
+            array.swapRemove(array, row, self.allocator);
         }
 
         if (archetype.components == 1) {

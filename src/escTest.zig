@@ -89,3 +89,43 @@ test "Removing an entity" {
     try std.testing.expectEqual(4, position.x);
     try std.testing.expectEqual(1, position.y);
 }
+
+const StringAllocator = struct {
+    value: []u8,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *StringAllocator) void {
+        self.allocator.free(self.value);
+    }
+};
+
+const StringNoAllocator = struct {
+    value: []u8,
+
+    pub fn deinit(self: *StringNoAllocator, allocator: std.mem.Allocator) void {
+        allocator.free(self.value);
+    }
+};
+
+const message = "hello";
+
+test "Deinit a component" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    const string: StringAllocator = .{ .value = try std.testing.allocator.alloc(u8, 5), .allocator = std.testing.allocator };
+    @memcpy(string.value, message);
+
+    const entity1 = ecs.createEntity(struct { StringAllocator }, .{
+        string,
+    });
+
+    const string2: StringNoAllocator = .{ .value = try std.testing.allocator.alloc(u8, 5) };
+    @memcpy(string2.value, message);
+
+    _ = ecs.createEntity(struct { StringNoAllocator }, .{
+        string2,
+    });
+
+    ecs.destroyEntity(entity1);
+}
