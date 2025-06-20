@@ -63,8 +63,6 @@ test "Creating a new entity" {
     try std.testing.expectEqual(7, ecs.entityManager.archetypes.items[2].bitset.mask);
     try std.testing.expectEqual(2, ecs.entityManager.archetypes.items[3].bitset.mask);
 
-    try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Position }, struct { Position }));
-    try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Position }, struct { Position, Collider }));
     try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Collider }, struct { Position, Velocity }));
 
     var iterator: Iterator(struct { Position }) = ecs.getComponentIterators(struct { Position }, struct {}).?;

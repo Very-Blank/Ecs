@@ -166,7 +166,7 @@ pub const Ecs = struct {
             if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |componentId| wanted.set(componentId.value()) else return null;
         }
 
-        if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) return null;
+        if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) unreachable;
 
         for (self.entityManager.archetypes.items) |*archetype| {
             if (wanted.intersectWith(archetype.bitset).eql(wanted) and notWanted.intersectWith(archetype.bitset).eql(Bitset.initEmpty()) and archetype.components > 0) {
