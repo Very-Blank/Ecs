@@ -27,17 +27,17 @@ pub fn TupleOfArrayLists(comptime T: type) type {
     }
 }
 
-pub fn TupleOfIterators(comptime T: type) type {
+pub fn TupleOfBuffers(comptime T: type) type {
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| {
             var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
             for (@"struct".fields, 0..) |field, i| {
                 new_fields[i] = std.builtin.Type.StructField{
                     .name = &[2:0]u8{ '0' + @as(u8, @intCast(i)), 0 },
-                    .type = Iterator(field.type),
+                    .type = [][]field.type,
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = @alignOf(Iterator(field.type)),
+                    .alignment = @alignOf([][]field.type),
                 };
             }
             return @Type(.{
@@ -53,47 +53,99 @@ pub fn TupleOfIterators(comptime T: type) type {
     }
 }
 
-pub fn Iterator(comptime T: type) type {
-    return struct {
-        buffers: [][]T,
-        currentIndex: u32,
-        currentBuffer: u32,
-
-        allocator: std.mem.Allocator,
-
-        const Self = @This();
-
-        pub fn init(buffers: [][]T, allocator: std.mem.Allocator) Self {
-            return .{
-                .buffers = buffers,
-                .currentIndex = 0,
-                .currentBuffer = 0,
-                .allocator = allocator,
-            };
-        }
-
-        // Frees the array that holds the buffers, doesn't touch the actual buffers.
-        pub fn deinit(self: *const Self) void {
-            self.allocator.free(self.buffers);
-        }
-
-        /// Returns the next value in the buffers and whether or not there is next value.
-        /// If there is no next value next() will return the last element in the buffers.
-        pub fn next(self: *Self) struct { *T, bool } {
-            const value: *T = &self.buffers[self.currentBuffer][self.currentIndex];
-
-            if (self.currentIndex + 1 < self.buffers[self.currentBuffer].len) {
-                self.currentIndex += 1;
-
-                return .{ value, true };
-            } else if (self.currentBuffer + 1 < self.buffers.len) {
-                self.currentBuffer += 1;
-                self.currentIndex = 0;
-
-                return .{ value, true };
+pub fn TupleOfComponents(comptime T: type) type {
+    switch (@typeInfo(T)) {
+        .@"struct" => |@"struct"| {
+            var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
+            for (@"struct".fields, 0..) |field, i| {
+                new_fields[i] = std.builtin.Type.StructField{
+                    .name = &[2:0]u8{ '0' + @as(u8, @intCast(i)), 0 },
+                    .type = *field.type,
+                    .default_value_ptr = null,
+                    .is_comptime = false,
+                    .alignment = @alignOf(*field.type),
+                };
             }
 
-            return .{ value, false };
-        }
-    };
+            return @Type(.{
+                .@"struct" = .{
+                    .layout = .auto,
+                    .fields = &new_fields,
+                    .decls = &.{},
+                    .is_tuple = true,
+                },
+            });
+        },
+        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+    }
+}
+
+pub fn Iterator(comptime T: type) type {
+    switch (@typeInfo(T)) {
+        .@"struct" => |@"struct"| {
+            return struct {
+                tBuffers: TupleOfBuffers(T),
+                currentIndex: u32,
+                currentBuffer: u32,
+
+                allocator: std.mem.Allocator,
+
+                const Self = @This();
+
+                pub fn init(tBuffers: TupleOfBuffers(T), allocator: std.mem.Allocator) Self {
+                    std.debug.assert(tBuffers.len > 0);
+                    inline for (0..@"struct".fields.len) |i| {
+                        std.debug.assert(tBuffers[i].len > 0);
+                        std.debug.assert(tBuffers[i][0].len > 0);
+                    }
+
+                    return .{
+                        .tBuffers = tBuffers,
+                        .currentIndex = 0,
+                        .currentBuffer = 0,
+                        .allocator = allocator,
+                    };
+                }
+
+                // Frees the array that holds the buffers, doesn't touch the actual buffers.
+                pub fn deinit(self: *Self) void {
+                    inline for (0..@"struct".fields.len) |i| {
+                        self.allocator.free(self.tBuffers[i]);
+                    }
+
+                    self.tBuffers = undefined;
+                }
+
+                pub fn reset(self: *Self) void {
+                    self.currentBuffer = 0;
+                    self.currentIndex = 0;
+                }
+
+                /// Returns the next value in the buffers and whether or not there is next value.
+                /// If there is no next value next() will return the last element in the buffers.
+                pub fn next(self: *Self) ?TupleOfComponents(T) {
+                    if (self.tBuffers[0].len <= self.currentBuffer) {
+                        return null;
+                    }
+
+                    var value: TupleOfComponents(T) = undefined;
+                    inline for (0..@"struct".fields.len) |i| {
+                        value[i] = &self.tBuffers[i][self.currentBuffer][self.currentIndex];
+                    }
+
+                    if (self.currentIndex + 1 < self.tBuffers[0][self.currentBuffer].len) {
+                        self.currentIndex += 1;
+
+                        return value;
+                    } else {}
+
+                    self.currentBuffer += 1;
+                    self.currentIndex = 0;
+
+                    return value;
+                }
+            };
+        },
+        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+    }
 }

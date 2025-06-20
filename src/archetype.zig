@@ -4,7 +4,7 @@ const Bitset = @import("componentManager.zig").Bitset;
 const ComponentType = @import("componentManager.zig").ComponentType;
 
 const EntityType = @import("entity.zig").EntityType;
-const ErasedArrayList = @import("erasedArray.zig").ErasedArray;
+const ErasedArray = @import("erasedArray.zig").ErasedArray;
 
 const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
 
@@ -24,7 +24,7 @@ pub const Row = enum(u32) {
 
 pub const Archetype = struct {
     bitset: Bitset,
-    componentArrays: std.ArrayListUnmanaged(ErasedArrayList),
+    componentArrays: std.ArrayListUnmanaged(ErasedArray),
     components: u32,
 
     entityToRowMap: std.AutoHashMapUnmanaged(EntityType, Row),

@@ -43,27 +43,41 @@ test "Creating a new entity" {
     }
 
     for (0..100) |_| {
+        _ = ecs.createEntity(struct { Velocity, Position, Collider }, .{
+            Velocity{ .x = 1, .y = 3 },
+            Position{ .x = 1, .y = 3 },
+            Collider{ .x = 1, .y = 3 },
+        });
+    }
+
+    for (0..100) |_| {
         _ = ecs.createEntity(struct { Velocity }, .{
             Velocity{ .x = 1, .y = 3 },
         });
     }
 
-    try std.testing.expectEqual(3, ecs.entityManager.archetypes.items.len);
-    try std.testing.expectEqual(2, ecs.componentManager.components.items.len);
+    try std.testing.expectEqual(4, ecs.entityManager.archetypes.items.len);
+    try std.testing.expectEqual(3, ecs.componentManager.components.items.len);
     try std.testing.expectEqual(1, ecs.entityManager.archetypes.items[0].bitset.mask);
     try std.testing.expectEqual(3, ecs.entityManager.archetypes.items[1].bitset.mask);
-    try std.testing.expectEqual(2, ecs.entityManager.archetypes.items[2].bitset.mask);
+    try std.testing.expectEqual(7, ecs.entityManager.archetypes.items[2].bitset.mask);
+    try std.testing.expectEqual(2, ecs.entityManager.archetypes.items[3].bitset.mask);
 
-    var iterators: struct { Iterator(Velocity) } = ecs.getComponentIteratorsIntersect(struct { Velocity }).?;
-    defer inline for (iterators) |iterator| iterator.deinit();
-    var i: u64 = 1;
-    while (true) : (i += 1) {
-        const vel: Velocity, const next = iterators[0].next();
-        _ = vel;
-        if (!next) break;
+    try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Position }, struct { Position }));
+    try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Position }, struct { Position, Collider }));
+    try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Collider }, struct { Position, Velocity }));
+
+    var iterator: Iterator(struct { Position }) = ecs.getComponentIterators(struct { Position }, struct {}).?;
+    defer iterator.deinit();
+
+    var i: u64 = 0;
+    while (iterator.next()) |value| {
+        if (i > 500) return error.InfiniteLoop;
+        i += 1;
+        _ = value;
     }
 
-    try std.testing.expectEqual(300, i);
+    try std.testing.expectEqual(400, i);
 }
 
 test "Removing an entity" {
