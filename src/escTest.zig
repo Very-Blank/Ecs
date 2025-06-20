@@ -2,6 +2,7 @@ const std = @import("std");
 const Ecs = @import("ecs.zig").Ecs;
 const Row = @import("archetype.zig").Row;
 const Iterator = @import("iterator.zig").Iterator;
+const TupleIterator = @import("iterator.zig").TupleIterator;
 
 pub const Position = struct {
     x: u32,
@@ -65,8 +66,11 @@ test "Creating a new entity" {
 
     try std.testing.expectEqual(null, ecs.getComponentIterators(struct { Collider }, struct { Position, Velocity }));
 
-    var iterator: Iterator(struct { Position }) = ecs.getComponentIterators(struct { Position }, struct {}).?;
+    var iterator: Iterator(Position) = ecs.getComponentIterators(struct { Position }, struct {}).?;
     defer iterator.deinit();
+
+    var tupleIterator: TupleIterator(struct { Position, Velocity }) = ecs.getComponentIterators(struct { Position, Velocity }, struct {}).?;
+    defer tupleIterator.deinit();
 
     var i: u64 = 0;
     while (iterator.next()) |value| {
@@ -76,6 +80,15 @@ test "Creating a new entity" {
     }
 
     try std.testing.expectEqual(400, i);
+
+    i = 0;
+    while (tupleIterator.next()) |value| {
+        if (i > 500) return error.InfiniteLoop;
+        i += 1;
+        _ = value;
+    }
+
+    try std.testing.expectEqual(300, i);
 }
 
 test "Removing an entity" {

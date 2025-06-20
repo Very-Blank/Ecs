@@ -41,7 +41,16 @@ pub const Ecs = struct {
         switch (@typeInfo(T)) {
             .@"struct" => |@"struct"| {
                 if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
-                const bitset = self.componentManager.getBitsetForTuple(T, self.allocator);
+
+                var bitset = Bitset.initEmpty();
+                inline for (@"struct".fields) |field| {
+                    if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |id| {
+                        if (bitset.isSet(id.value())) unreachable;
+                        bitset.set(id.value());
+                    } else {
+                        bitset.set(self.componentManager.registerComponent(self.allocator, field.type).value());
+                    }
+                }
 
                 // Get new entity unused or new one.
                 const slimPointer: SlimPointer = self.entityManager.getNewEntity();
@@ -145,9 +154,24 @@ pub const Ecs = struct {
         return &archetype.componentArrays.items[componentArrayIndex].cast(T).items[row.value()];
     }
 
+    fn getReturnType(comptime T: type) type {
+        switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                if (!info.is_tuple or info.fields.len == 0) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple or it was a tuple, but was empty");
+
+                if (info.fields.len == 1) {
+                    return iterator.Iterator(info.fields[0].type);
+                } else {
+                    return iterator.TupleIterator(T);
+                }
+            },
+            else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+        }
+    }
+
     /// Gets all archetypes that have all of the components in the tuple and returns them as iterators.
     /// Remember to call deinit on the iterator.
-    pub fn getComponentIterators(self: *Ecs, comptime included: type, comptime excluded: type) ?iterator.Iterator(included) {
+    pub fn getComponentIterators(self: *Ecs, comptime included: type, comptime excluded: type) ?getReturnType(included) {
         const includedStruct = getTupleInfo(included, false);
         const excludedStruct = getTupleInfo(excluded, true);
 
@@ -158,31 +182,49 @@ pub const Ecs = struct {
             if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |componentId| notWanted.set(componentId.value());
         }
 
-        var tuple: iterator.TupleOfArrayLists(included) = undefined;
+        if (includedStruct.fields.len > 1) {
+            var tuple: iterator.TupleOfArrayLists(included) = undefined;
 
-        inline for (includedStruct.fields, 0..) |field, i| {
-            tuple[i] = .empty;
+            inline for (includedStruct.fields, 0..) |field, i| {
+                tuple[i] = .empty;
 
-            if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |componentId| wanted.set(componentId.value()) else return null;
-        }
+                if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |componentId| wanted.set(componentId.value()) else return null;
+            }
 
-        if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) unreachable;
+            if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) unreachable;
 
-        for (self.entityManager.archetypes.items) |*archetype| {
-            if (wanted.intersectWith(archetype.bitset).eql(wanted) and notWanted.intersectWith(archetype.bitset).eql(Bitset.initEmpty()) and archetype.components > 0) {
-                inline for (includedStruct.fields, 0..) |field, i| {
-                    const componentId = self.componentManager.hashMap.get(ULandType.getHash(field.type)).?;
-                    tuple[i].append(self.allocator, archetype.componentArrays.items[archetype.componentMap.get(componentId).?].cast(field.type).items) catch unreachable;
+            for (self.entityManager.archetypes.items) |*archetype| {
+                if (wanted.intersectWith(archetype.bitset).eql(wanted) and notWanted.intersectWith(archetype.bitset).eql(Bitset.initEmpty()) and archetype.components > 0) {
+                    inline for (includedStruct.fields, 0..) |field, i| {
+                        const componentId = self.componentManager.hashMap.get(ULandType.getHash(field.type)).?;
+                        tuple[i].append(self.allocator, archetype.componentArrays.items[archetype.componentMap.get(componentId).?].cast(field.type).items) catch unreachable;
+                    }
                 }
             }
+
+            if (tuple[0].items.len == 0) return null;
+
+            var tBuffers: iterator.TupleOfBuffers(included) = undefined;
+            inline for (0..includedStruct.fields.len) |i| tBuffers[i] = tuple[i].toOwnedSlice(self.allocator) catch unreachable;
+
+            return iterator.TupleIterator(included).init(tBuffers, self.allocator);
+        } else {
+            var list = std.ArrayListUnmanaged([]includedStruct.fields[0].type).empty;
+            if (self.componentManager.hashMap.get(ULandType.getHash(includedStruct.fields[0].type))) |componentId| wanted.set(componentId.value()) else return null;
+
+            if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) unreachable;
+
+            for (self.entityManager.archetypes.items) |*archetype| {
+                if (wanted.intersectWith(archetype.bitset).eql(wanted) and notWanted.intersectWith(archetype.bitset).eql(Bitset.initEmpty()) and archetype.components > 0) {
+                    const componentId = self.componentManager.hashMap.get(ULandType.getHash(includedStruct.fields[0].type)).?;
+                    list.append(self.allocator, archetype.componentArrays.items[archetype.componentMap.get(componentId).?].cast(includedStruct.fields[0].type).items) catch unreachable;
+                }
+            }
+
+            if (list.items.len == 0) return null;
+
+            return iterator.Iterator(includedStruct.fields[0].type).init(list.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
-
-        if (tuple[0].items.len == 0) return null;
-
-        var tBuffers: iterator.TupleOfBuffers(included) = undefined;
-        inline for (0..includedStruct.fields.len) |i| tBuffers[i] = tuple[i].toOwnedSlice(self.allocator) catch unreachable;
-
-        return iterator.Iterator(included).init(tBuffers, self.allocator);
     }
 
     fn getTupleInfo(comptime T: type, comptime emptyIsTuple: bool) std.builtin.Type.Struct {

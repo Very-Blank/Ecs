@@ -19,9 +19,7 @@ pub fn build(b: *std.Build) void {
     b.installArtifact(lib);
 
     // Tests:
-    const testFiles = .{
-        "escTest",
-    };
+    const testFiles = .{"escTest"};
 
     const test_step = b.step("test", "Run unit tests");
 

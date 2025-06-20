@@ -40,33 +40,4 @@ pub const ComponentManager = struct {
 
         return ComponentType.make(@intCast(self.components.items.len - 1));
     }
-
-    pub fn getBitsetForTuple(self: *ComponentManager, comptime T: type, allocator: Allocator) Bitset {
-        var bitset = Bitset.initEmpty();
-        switch (@typeInfo(T)) {
-            .@"struct" => |@"struct"| {
-                if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
-                inline for (@"struct".fields) |field| {
-                    if (self.hashMap.get(ULandType.getHash(field.type))) |id| {
-                        bitset.set(id.value());
-                    } else {
-                        bitset.set(self.registerComponent(allocator, field.type).value());
-                    }
-                }
-            },
-            else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
-        }
-
-        return bitset;
-    }
-
-    // pub fn getBitset(self: *ComponentManager, T: []u64) !Bitset {
-    //     std.debug.assert(MAX_COMPONENTS < self.components.items.len + 1);
-    //     const bitset = Bitset.initEmpty();
-    //     for (typeIds) |cTypeId| {
-    //         bitset.set(if (self.hashMap.get(cTypeId)) |index| index else return error.ComponentNotRegistered);
-    //     }
-    //
-    //     return bitset;
-    // }
 };

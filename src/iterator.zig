@@ -3,6 +3,7 @@ const std = @import("std");
 pub fn TupleOfArrayLists(comptime T: type) type {
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| {
+            if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
             var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
             for (@"struct".fields, 0..) |field, i| {
                 new_fields[i] = std.builtin.Type.StructField{
@@ -30,6 +31,7 @@ pub fn TupleOfArrayLists(comptime T: type) type {
 pub fn TupleOfBuffers(comptime T: type) type {
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| {
+            if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
             var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
             for (@"struct".fields, 0..) |field, i| {
                 new_fields[i] = std.builtin.Type.StructField{
@@ -56,6 +58,7 @@ pub fn TupleOfBuffers(comptime T: type) type {
 pub fn TupleOfComponents(comptime T: type) type {
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| {
+            if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
             var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
             for (@"struct".fields, 0..) |field, i| {
                 new_fields[i] = std.builtin.Type.StructField{
@@ -80,9 +83,10 @@ pub fn TupleOfComponents(comptime T: type) type {
     }
 }
 
-pub fn Iterator(comptime T: type) type {
+pub fn TupleIterator(comptime T: type) type {
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| {
+            if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
             return struct {
                 tBuffers: TupleOfBuffers(T),
                 currentIndex: u32,
@@ -137,7 +141,7 @@ pub fn Iterator(comptime T: type) type {
                         self.currentIndex += 1;
 
                         return value;
-                    } else {}
+                    }
 
                     self.currentBuffer += 1;
                     self.currentIndex = 0;
@@ -146,6 +150,62 @@ pub fn Iterator(comptime T: type) type {
                 }
             };
         },
-        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple or a [][]T type."),
     }
+}
+
+pub fn Iterator(comptime T: type) type {
+    return struct {
+        buffers: [][]T,
+        currentIndex: u32,
+        currentBuffer: u32,
+
+        allocator: std.mem.Allocator,
+
+        const Self = @This();
+
+        pub fn init(buffers: [][]T, allocator: std.mem.Allocator) Self {
+            std.debug.assert(buffers.len > 0);
+            std.debug.assert(buffers[0].len > 0);
+
+            return .{
+                .buffers = buffers,
+                .currentIndex = 0,
+                .currentBuffer = 0,
+                .allocator = allocator,
+            };
+        }
+
+        // Frees the array that holds the buffers, doesn't touch the actual buffers.
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.buffers);
+            self.buffers = undefined;
+        }
+
+        pub fn reset(self: *Self) void {
+            self.currentBuffer = 0;
+            self.currentIndex = 0;
+        }
+
+        /// Returns the next value in the buffers and whether or not there is next value.
+        /// If there is no next value next() will return the last element in the buffers.
+        pub fn next(self: *Self) ?*T {
+            if (self.buffers.len <= self.currentBuffer) {
+                return null;
+            }
+
+            const value: *T = &self.buffers[self.currentBuffer][self.currentIndex];
+
+            if (self.currentIndex + 1 < self.buffers[self.currentBuffer].len) {
+                self.currentIndex += 1;
+
+                return value;
+            }
+
+            self.currentBuffer += 1;
+            self.currentIndex = 0;
+
+            return value;
+        }
+    };
 }
