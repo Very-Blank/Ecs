@@ -1,4 +1,5 @@
 const std = @import("std");
+const ArchetypeType = @import("archetype.zig").ArchetypeType;
 
 pub const EntityType = enum(u32) {
     _,
@@ -8,18 +9,6 @@ pub const EntityType = enum(u32) {
     }
 
     pub inline fn value(@"enum": EntityType) u32 {
-        return @intFromEnum(@"enum");
-    }
-};
-
-pub const ArchetypeType = enum(u32) {
-    _,
-
-    pub inline fn make(@"u32": u32) ArchetypeType {
-        return @enumFromInt(@"u32");
-    }
-
-    pub inline fn value(@"enum": ArchetypeType) u32 {
         return @intFromEnum(@"enum");
     }
 };

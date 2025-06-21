@@ -154,3 +154,105 @@ test "Deinit a component" {
 
     ecs.destroyEntity(entity1);
 }
+
+test "Creating and registering singletons" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    // Create some entities
+    const cameraEntity = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 10, .y = 20 },
+    });
+
+    const inputEntity = ecs.createEntity(struct { Velocity }, .{
+        Velocity{ .x = 5, .y = 8 },
+    });
+
+    // Create singletons
+    const cameraSingleton = ecs.createSingleton();
+    const inputSingleton = ecs.createSingleton();
+
+    // Register entities to singletons
+    ecs.registerSingletonToEntity(cameraSingleton, cameraEntity);
+    ecs.registerSingletonToEntity(inputSingleton, inputEntity);
+
+    // Test getting singleton entities
+    try std.testing.expectEqual(cameraEntity, ecs.getSingletonsEntity(cameraSingleton).?);
+    try std.testing.expectEqual(inputEntity, ecs.getSingletonsEntity(inputSingleton).?);
+}
+
+test "Singleton returns null for invalid entity" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    // Create entity and singleton
+    const entity = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 1, .y = 2 },
+    });
+
+    const singleton = ecs.createSingleton();
+    ecs.registerSingletonToEntity(singleton, entity);
+
+    // Verify entity is registered
+    try std.testing.expectEqual(entity, ecs.getSingletonsEntity(singleton).?);
+
+    // Destroy the entity
+    ecs.destroyEntity(entity);
+
+    // Singleton should now return null
+    try std.testing.expectEqual(null, ecs.getSingletonsEntity(singleton));
+}
+
+test "Multiple singletons with unique IDs" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    // Create multiple singletons
+    const singleton1 = ecs.createSingleton();
+    const singleton2 = ecs.createSingleton();
+    const singleton3 = ecs.createSingleton();
+
+    // Singletons should have different values
+    try std.testing.expect(singleton1.value() != singleton2.value());
+    try std.testing.expect(singleton2.value() != singleton3.value());
+    try std.testing.expect(singleton1.value() != singleton3.value());
+
+    // Should be sequential
+    try std.testing.expectEqual(0, singleton1.value());
+    try std.testing.expectEqual(1, singleton2.value());
+    try std.testing.expectEqual(2, singleton3.value());
+}
+
+test "Unregistered singleton returns null" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    const singleton = ecs.createSingleton();
+
+    // Should return null since no entity is registered
+    try std.testing.expectEqual(null, ecs.getSingletonsEntity(singleton));
+}
+
+test "Reassigning singleton to different entity" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    // Create two entities
+    const entity1 = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 1, .y = 1 },
+    });
+
+    const entity2 = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 2, .y = 2 },
+    });
+
+    const singleton = ecs.createSingleton();
+
+    // Register first entity
+    ecs.registerSingletonToEntity(singleton, entity1);
+    try std.testing.expectEqual(entity1, ecs.getSingletonsEntity(singleton).?);
+
+    // Reassign to second entity
+    ecs.registerSingletonToEntity(singleton, entity2);
+    try std.testing.expectEqual(entity2, ecs.getSingletonsEntity(singleton).?);
+}

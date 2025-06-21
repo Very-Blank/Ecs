@@ -10,6 +10,18 @@ const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
 
 const Allocator = std.mem.Allocator;
 
+pub const ArchetypeType = enum(u32) {
+    _,
+
+    pub inline fn make(@"u32": u32) ArchetypeType {
+        return @enumFromInt(@"u32");
+    }
+
+    pub inline fn value(@"enum": ArchetypeType) u32 {
+        return @intFromEnum(@"enum");
+    }
+};
+
 pub const Row = enum(u32) {
     _,
 

@@ -1,12 +1,12 @@
 const std = @import("std");
 const Archetype = @import("archetype.zig").Archetype;
+const ArchetypeType = @import("archetype.zig").ArchetypeType;
 
 const EntityType = @import("entity.zig").EntityType;
-const ArchetypeType = @import("entity.zig").ArchetypeType;
 const SlimPointer = @import("entity.zig").SlimPointer;
 const FatPointer = @import("entity.zig").FatPointer;
 const GenerationType = @import("entity.zig").GenerationType;
-const ArchetypeId = @import("entity.zig").ArchetypeId;
+
 const Bitset = @import("componentManager.zig").Bitset;
 const Component = @import("componentManager.zig").ComponentType;
 

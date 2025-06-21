@@ -3,7 +3,6 @@ const std = @import("std");
 const ULandType = @import("uLandType.zig").ULandType;
 
 const EntityType = @import("entity.zig").EntityType;
-const ArchetypeType = @import("entity.zig").ArchetypeType;
 const FatPointer = @import("entity.zig").FatPointer;
 const SlimPointer = @import("entity.zig").SlimPointer;
 
@@ -14,20 +13,27 @@ const ComponentType = @import("componentManager.zig").ComponentType;
 const Bitset = @import("componentManager.zig").Bitset;
 
 const Archetype = @import("archetype.zig").Archetype;
+const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const Row = @import("archetype.zig").Row;
+
 const ErasedArray = @import("erasedArray.zig").ErasedArray;
+
+const SingletonManager = @import("singletonManager.zig").SingletonManager;
+const SingletonType = @import("singletonManager.zig").SingletonType;
 
 const iterator = @import("iterator.zig");
 
 pub const Ecs = struct {
     entityManager: EntityManager,
     componentManager: ComponentManager,
+    singletonManager: SingletonManager,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Ecs {
         return Ecs{
             .entityManager = EntityManager.init,
             .componentManager = ComponentManager.init,
+            .singletonManager = SingletonManager.init,
             .allocator = allocator,
         };
     }
@@ -35,6 +41,7 @@ pub const Ecs = struct {
     pub fn deinit(self: *Ecs) void {
         self.entityManager.deinit(self.allocator);
         self.componentManager.deinit(self.allocator);
+        self.singletonManager.deinit(self.allocator);
     }
 
     pub fn createEntity(self: *Ecs, comptime T: type, componets: T) SlimPointer {
@@ -141,6 +148,26 @@ pub const Ecs = struct {
         self.entityManager.unused.append(self.allocator, slimPointer) catch unreachable;
     }
 
+    pub fn entityIsValid(self: *Ecs, slimPointer: SlimPointer) bool {
+        if (self.entityManager.entityMap.get(slimPointer.entity)) |fatPointer| {
+            return slimPointer.generation == fatPointer.generation;
+        }
+
+        return false;
+    }
+
+    pub fn entityHasComponent(self: *Ecs, slimPointer: SlimPointer, comptime T: type) bool {
+        const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
+        std.debug.assert(slimPointer.generation == fatPointer.generation);
+
+        const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
+        if (self.componentManager.hashMap.get(ULandType.getHash(T))) |componentId| {
+            return archetype.componentMap.contains(componentId);
+        }
+
+        return false;
+    }
+
     pub fn getEntityComponent(self: *Ecs, slimPointer: SlimPointer, comptime T: type) *T {
         const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
         std.debug.assert(slimPointer.generation == fatPointer.generation);
@@ -236,5 +263,24 @@ pub const Ecs = struct {
             },
             else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
         }
+    }
+
+    pub fn createSingleton(self: *Ecs) SingletonType {
+        self.singletonManager.len += 1;
+        return SingletonType.make(self.singletonManager.len - 1);
+    }
+
+    pub fn registerSingletonToEntity(self: *Ecs, singleton: SingletonType, entity: SlimPointer) void {
+        std.debug.assert(self.entityIsValid(entity));
+
+        self.singletonManager.singletonToEntityMap.put(self.allocator, singleton, entity) catch unreachable;
+    }
+
+    pub fn getSingletonsEntity(self: *Ecs, singleton: SingletonType) ?SlimPointer {
+        if (self.singletonManager.singletonToEntityMap.get(singleton)) |entity| {
+            if (self.entityIsValid(entity)) return entity else return null;
+        }
+
+        return null;
     }
 };
