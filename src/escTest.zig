@@ -155,104 +155,155 @@ test "Deinit a component" {
     ecs.destroyEntity(entity1);
 }
 
-test "Creating and registering singletons" {
+test "Creating singleton with component requirements" {
     var ecs: Ecs = .init(std.testing.allocator);
     defer ecs.deinit();
 
-    // Create some entities
-    const cameraEntity = ecs.createEntity(struct { Position }, .{
-        Position{ .x = 10, .y = 20 },
-    });
+    // Create singletons with different component requirements
+    const cameraSingleton = ecs.createSingleton(struct { Position, Velocity });
+    const inputSingleton = ecs.createSingleton(struct { Position });
+    const colliderSingleton = ecs.createSingleton(struct { Collider, Position, Velocity });
 
-    const inputEntity = ecs.createEntity(struct { Velocity }, .{
+    // Should create different singleton IDs
+    try std.testing.expect(cameraSingleton.value() != inputSingleton.value());
+    try std.testing.expect(inputSingleton.value() != colliderSingleton.value());
+}
+
+test "Registering entity with matching components succeeds" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    // Create entity with Position and Velocity
+    const entity = ecs.createEntity(struct { Position, Velocity }, .{
+        Position{ .x = 10, .y = 20 },
         Velocity{ .x = 5, .y = 8 },
     });
 
-    // Create singletons
-    const cameraSingleton = ecs.createSingleton();
-    const inputSingleton = ecs.createSingleton();
+    // Create singleton that requires Position and Velocity
+    const singleton = ecs.createSingleton(struct { Position, Velocity });
 
-    // Register entities to singletons
-    ecs.registerSingletonToEntity(cameraSingleton, cameraEntity);
-    ecs.registerSingletonToEntity(inputSingleton, inputEntity);
+    // Registration should succeed
+    try ecs.registerSingletonToEntity(singleton, entity);
 
-    // Test getting singleton entities
-    try std.testing.expectEqual(cameraEntity, ecs.getSingletonsEntity(cameraSingleton).?);
-    try std.testing.expectEqual(inputEntity, ecs.getSingletonsEntity(inputSingleton).?);
+    // Should be able to get the entity back
+    try std.testing.expectEqual(entity, ecs.getSingletonsEntity(singleton).?);
 }
 
-test "Singleton returns null for invalid entity" {
+test "Registering entity with extra components succeeds" {
     var ecs: Ecs = .init(std.testing.allocator);
     defer ecs.deinit();
 
-    // Create entity and singleton
+    // Create entity with more components than required
+    const entity = ecs.createEntity(struct { Position, Velocity, Collider }, .{
+        Position{ .x = 1, .y = 2 },
+        Velocity{ .x = 3, .y = 4 },
+        Collider{ .x = 5, .y = 6 },
+    });
+
+    // Singleton only requires Position and Velocity
+    const singleton = ecs.createSingleton(struct { Position, Velocity });
+
+    // Registration should succeed (entity has required components plus extras)
+    try ecs.registerSingletonToEntity(singleton, entity);
+
+    try std.testing.expectEqual(entity, ecs.getSingletonsEntity(singleton).?);
+}
+
+test "Registering entity with missing components fails" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    // Create entity with only Position
     const entity = ecs.createEntity(struct { Position }, .{
         Position{ .x = 1, .y = 2 },
     });
 
-    const singleton = ecs.createSingleton();
-    ecs.registerSingletonToEntity(singleton, entity);
+    // Singleton requires both Position and Velocity
+    const singleton = ecs.createSingleton(struct { Position, Velocity });
 
-    // Verify entity is registered
+    // Registration should fail
+    try std.testing.expectError(error.EntityNotMatchingRequirments, ecs.registerSingletonToEntity(singleton, entity));
+
+    // Singleton should still return null (not registered)
+    try std.testing.expectEqual(null, ecs.getSingletonsEntity(singleton));
+}
+
+test "Single component requirement works" {
+    var ecs: Ecs = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    const entity = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 100, .y = 200 },
+    });
+
+    const singleton = ecs.createSingleton(struct { Position });
+
+    try ecs.registerSingletonToEntity(singleton, entity);
     try std.testing.expectEqual(entity, ecs.getSingletonsEntity(singleton).?);
-
-    // Destroy the entity
-    ecs.destroyEntity(entity);
-
-    // Singleton should now return null
-    try std.testing.expectEqual(null, ecs.getSingletonsEntity(singleton));
 }
 
-test "Multiple singletons with unique IDs" {
+test "Failed registration doesn't affect existing registration" {
     var ecs: Ecs = .init(std.testing.allocator);
     defer ecs.deinit();
 
-    // Create multiple singletons
-    const singleton1 = ecs.createSingleton();
-    const singleton2 = ecs.createSingleton();
-    const singleton3 = ecs.createSingleton();
+    // Create two entities - one valid, one invalid
+    const validEntity = ecs.createEntity(struct { Position, Velocity }, .{
+        Position{ .x = 1, .y = 2 },
+        Velocity{ .x = 3, .y = 4 },
+    });
 
-    // Singletons should have different values
-    try std.testing.expect(singleton1.value() != singleton2.value());
-    try std.testing.expect(singleton2.value() != singleton3.value());
-    try std.testing.expect(singleton1.value() != singleton3.value());
+    const invalidEntity = ecs.createEntity(struct { Position }, .{
+        Position{ .x = 5, .y = 6 },
+    });
 
-    // Should be sequential
-    try std.testing.expectEqual(0, singleton1.value());
-    try std.testing.expectEqual(1, singleton2.value());
-    try std.testing.expectEqual(2, singleton3.value());
+    const singleton = ecs.createSingleton(struct { Position, Velocity });
+
+    // Register valid entity first
+    try ecs.registerSingletonToEntity(singleton, validEntity);
+    try std.testing.expectEqual(validEntity, ecs.getSingletonsEntity(singleton).?);
+
+    // Try to register invalid entity - should fail
+    try std.testing.expectError(error.EntityNotMatchingRequirments, ecs.registerSingletonToEntity(singleton, invalidEntity));
+
+    // Original registration should still be intact
+    try std.testing.expectEqual(validEntity, ecs.getSingletonsEntity(singleton).?);
 }
 
-test "Unregistered singleton returns null" {
+test "Multiple singletons with different requirements" {
     var ecs: Ecs = .init(std.testing.allocator);
     defer ecs.deinit();
 
-    const singleton = ecs.createSingleton();
-
-    // Should return null since no entity is registered
-    try std.testing.expectEqual(null, ecs.getSingletonsEntity(singleton));
-}
-
-test "Reassigning singleton to different entity" {
-    var ecs: Ecs = .init(std.testing.allocator);
-    defer ecs.deinit();
-
-    // Create two entities
-    const entity1 = ecs.createEntity(struct { Position }, .{
+    // Create entities with different component combinations
+    const positionEntity = ecs.createEntity(struct { Position }, .{
         Position{ .x = 1, .y = 1 },
     });
 
-    const entity2 = ecs.createEntity(struct { Position }, .{
+    const movingEntity = ecs.createEntity(struct { Position, Velocity }, .{
         Position{ .x = 2, .y = 2 },
+        Velocity{ .x = 1, .y = 1 },
     });
 
-    const singleton = ecs.createSingleton();
+    const collidingEntity = ecs.createEntity(struct { Position, Collider }, .{
+        Position{ .x = 3, .y = 3 },
+        Collider{ .x = 1, .y = 1 },
+    });
 
-    // Register first entity
-    ecs.registerSingletonToEntity(singleton, entity1);
-    try std.testing.expectEqual(entity1, ecs.getSingletonsEntity(singleton).?);
+    // Create singletons with different requirements
+    const positionSingleton = ecs.createSingleton(struct { Position });
+    const movingSingleton = ecs.createSingleton(struct { Position, Velocity });
+    const collidingSingleton = ecs.createSingleton(struct { Position, Collider });
 
-    // Reassign to second entity
-    ecs.registerSingletonToEntity(singleton, entity2);
-    try std.testing.expectEqual(entity2, ecs.getSingletonsEntity(singleton).?);
+    // Register appropriate entities
+    try ecs.registerSingletonToEntity(positionSingleton, positionEntity);
+    try ecs.registerSingletonToEntity(movingSingleton, movingEntity);
+    try ecs.registerSingletonToEntity(collidingSingleton, collidingEntity);
+
+    // Verify all registrations
+    try std.testing.expectEqual(positionEntity, ecs.getSingletonsEntity(positionSingleton).?);
+    try std.testing.expectEqual(movingEntity, ecs.getSingletonsEntity(movingSingleton).?);
+    try std.testing.expectEqual(collidingEntity, ecs.getSingletonsEntity(collidingSingleton).?);
+
+    // Test invalid registrations
+    try std.testing.expectError(error.EntityNotMatchingRequirments, ecs.registerSingletonToEntity(movingSingleton, positionEntity));
+    try std.testing.expectError(error.EntityNotMatchingRequirments, ecs.registerSingletonToEntity(collidingSingleton, movingEntity));
 }

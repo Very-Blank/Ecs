@@ -1,6 +1,8 @@
 const std = @import("std");
 const SlimPointer = @import("entity.zig").SlimPointer;
 
+const Bitset = @import("componentManager.zig").Bitset;
+
 pub const SingletonType = enum(u32) {
     _,
 
@@ -14,12 +16,14 @@ pub const SingletonType = enum(u32) {
 };
 
 pub const SingletonManager = struct {
+    singletons: std.ArrayListUnmanaged(Bitset),
     singletonToEntityMap: std.AutoHashMapUnmanaged(SingletonType, SlimPointer),
     len: u32,
 
-    pub const init = SingletonManager{ .singletonToEntityMap = .empty, .len = 0 };
+    pub const init = SingletonManager{ .singletons = .empty, .singletonToEntityMap = .empty, .len = 0 };
 
     pub fn deinit(self: *SingletonManager, allocator: std.mem.Allocator) void {
+        self.singletons.deinit(allocator);
         self.singletonToEntityMap.deinit(allocator);
     }
 };

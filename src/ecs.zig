@@ -265,20 +265,46 @@ pub const Ecs = struct {
         }
     }
 
-    pub fn createSingleton(self: *Ecs) SingletonType {
+    pub fn createSingleton(self: *Ecs, comptime T: type) SingletonType {
+        const @"struct" = getTupleInfo(T, false);
+        var bitset = Bitset.initEmpty();
+
+        inline for (@"struct".fields) |field| {
+            if (self.componentManager.hashMap.get(ULandType.getHash(field.type))) |id| {
+                if (bitset.isSet(id.value())) unreachable;
+                bitset.set(id.value());
+            } else {
+                bitset.set(self.componentManager.registerComponent(self.allocator, field.type).value());
+            }
+        }
+
+        self.singletonManager.singletons.append(self.allocator, bitset) catch unreachable;
+
         self.singletonManager.len += 1;
         return SingletonType.make(self.singletonManager.len - 1);
     }
 
-    pub fn registerSingletonToEntity(self: *Ecs, singleton: SingletonType, entity: SlimPointer) void {
-        std.debug.assert(self.entityIsValid(entity));
+    pub fn registerSingletonToEntity(self: *Ecs, singleton: SingletonType, slimPointer: SlimPointer) !void {
+        const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
+        std.debug.assert(slimPointer.generation == fatPointer.generation);
 
-        self.singletonManager.singletonToEntityMap.put(self.allocator, singleton, entity) catch unreachable;
+        const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
+
+        const bitset = self.singletonManager.singletons.items[singleton.value()];
+
+        if (archetype.bitset.intersectWith(bitset).eql(bitset)) {
+            self.singletonManager.singletonToEntityMap.put(self.allocator, singleton, slimPointer) catch unreachable;
+        } else {
+            return error.EntityNotMatchingRequirments;
+        }
     }
 
     pub fn getSingletonsEntity(self: *Ecs, singleton: SingletonType) ?SlimPointer {
         if (self.singletonManager.singletonToEntityMap.get(singleton)) |entity| {
-            if (self.entityIsValid(entity)) return entity else return null;
+            if (self.entityIsValid(entity)) return entity else {
+                _ = self.singletonManager.singletonToEntityMap.remove(singleton);
+                return null;
+            }
         }
 
         return null;
