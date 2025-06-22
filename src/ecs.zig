@@ -279,7 +279,7 @@ pub const Ecs = struct {
         }
 
         self.singletonManager.singletons.append(self.allocator, bitset) catch unreachable;
-        return SingletonType.make(self.singletonManager.singletons.items.len - 1);
+        return SingletonType.make(@intCast(self.singletonManager.singletons.items.len - 1));
     }
 
     pub fn registerSingletonToEntity(self: *Ecs, singleton: SingletonType, slimPointer: SlimPointer) !void {
