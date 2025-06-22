@@ -279,14 +279,13 @@ pub const Ecs = struct {
         }
 
         self.singletonManager.singletons.append(self.allocator, bitset) catch unreachable;
-
-        self.singletonManager.len += 1;
-        return SingletonType.make(self.singletonManager.len - 1);
+        return SingletonType.make(self.singletonManager.singletons.items.len - 1);
     }
 
     pub fn registerSingletonToEntity(self: *Ecs, singleton: SingletonType, slimPointer: SlimPointer) !void {
         const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
         std.debug.assert(slimPointer.generation == fatPointer.generation);
+        std.debug.assert(singleton.value() < self.singletonManager.singletons.items.len);
 
         const archetype: *Archetype = &self.entityManager.archetypes.items[fatPointer.archetype.value()];
 
