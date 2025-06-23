@@ -148,6 +148,10 @@ pub fn TupleIterator(comptime T: type) type {
 
                     return value;
                 }
+
+                pub fn isNext(self: *Self) bool {
+                    return self.currentBuffer < self.tBuffers[0].len;
+                }
             };
         },
         else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple or a [][]T type."),
@@ -206,6 +210,10 @@ pub fn Iterator(comptime T: type) type {
             self.currentIndex = 0;
 
             return value;
+        }
+
+        pub fn isNext(self: *Self) bool {
+            return self.currentBuffer < self.buffers.len;
         }
     };
 }
