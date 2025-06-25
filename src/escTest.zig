@@ -1,5 +1,6 @@
 const std = @import("std");
 const Ecs = @import("ecs.zig").Ecs;
+const ECS = @import("ecs.zig").ECS;
 const Row = @import("archetype.zig").Row;
 const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("iterator.zig").TupleIterator;
@@ -20,6 +21,15 @@ pub const Collider = struct {
 };
 
 test "Creating a new entity" {
+    switch (@typeInfo(ECS(false))) {
+        .@"struct" => |@"struct"| {
+            inline for (@"struct".fields) |field| {
+                std.debug.print("{s}\n", .{field.name});
+            }
+        },
+        else => {},
+    }
+
     var ecs: Ecs = .init(std.testing.allocator);
     defer ecs.deinit();
 
