@@ -21,19 +21,23 @@ const ErasedArray = @import("erasedArray.zig").ErasedArray;
 const SingletonManager = @import("singletonManager.zig").SingletonManager;
 const SingletonType = @import("singletonManager.zig").SingletonType;
 
+const EventManager = @import("eventManager.zig").EventManager;
+
 const iterator = @import("iterator.zig");
 
 pub const Ecs = struct {
     entityManager: EntityManager,
     componentManager: ComponentManager,
     singletonManager: SingletonManager,
+    eventManager: EventManager,
     allocator: std.mem.Allocator,
 
-    pub fn init(allocator: std.mem.Allocator) Ecs {
+    pub fn init(allocator: std.mem.Allocator, comptime events: type) Ecs {
         return Ecs{
             .entityManager = EntityManager.init,
             .componentManager = ComponentManager.init,
             .singletonManager = SingletonManager.init,
+            .eventManager = EventManager.init(events, allocator),
             .allocator = allocator,
         };
     }

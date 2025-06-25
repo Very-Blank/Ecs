@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const Event = struct {
     handle: *anyopaque,
+    clear: *const fn (self: *Event, allocator: std.mem.Allocator) void,
     deinit: *const fn (self: *Event, allocator: std.mem.Allocator) void,
 
     pub fn init(comptime T: type, allocator: std.mem.Allocator) Event {
@@ -9,6 +10,12 @@ pub const Event = struct {
         newPtr.* = std.HashMapUnmanaged(T).empty;
         return Event{
             .handle = undefined,
+            .clear = (struct {
+                pub fn clear(self: *Event, _allocator: std.mem.Allocator) void {
+                    var ptr = self.cast(T);
+                    ptr.clearAndFree(_allocator);
+                }
+            }).clear,
             .deinit = (struct {
                 pub fn deinit(self: *Event, _allocator: std.mem.Allocator) void {
                     var ptr = self.cast(T);

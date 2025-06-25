@@ -1,13 +1,25 @@
 const std = @import("std");
 
-pub fn EventManager(comptime T: type) type {
-    switch (@typeInfo(T)) {
-        .@"struct" => |info| {
-            if (!info.is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple or it was a tuple, but was empty");
+const Event = @import("event.zig").Event;
+const ULandType = @import("uLandType.zig").ULandType;
 
-            inline for();
+pub const EventManager = struct {
+    events: []Event,
+    keys: []u64,
 
-        },
-        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+    pub fn init(comptime T: type, allocator: std.mem.Allocator) EventManager {
+        switch (@typeInfo(T)) {
+            .@"struct" => |info| {
+                if (!info.is_tuple or info.fields == 0) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple or it was a tuple, but was empty");
+                var events: [info.fields.len]Event = undefined;
+                var keys: [info.fields.len]u64 = undefined;
+
+                inline for (info.fields, 0..) |field, i| {
+                    events[i] = Event.init(field.type, allocator);
+                    keys[i] = ULandType.getHash(field.type);
+                }
+            },
+            else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+        }
     }
-}
+};
