@@ -1,15 +1,16 @@
 const std = @import("std");
+const EntityType = @import("entity.zig").EntityType;
 
 pub const Event = struct {
     handle: *anyopaque,
     clear: *const fn (self: *Event, allocator: std.mem.Allocator) void,
     deinit: *const fn (self: *Event, allocator: std.mem.Allocator) void,
 
-    pub fn init(comptime T: type, allocator: std.mem.Allocator) Event {
-        const newPtr = try allocator.create(std.HashMapUnmanaged(T));
-        newPtr.* = std.HashMapUnmanaged(T).empty;
+    pub fn init(comptime T: type, allocator: std.mem.Allocator) !Event {
+        const newPtr = try allocator.create(std.AutoHashMapUnmanaged(EntityType, T));
+        newPtr.* = std.AutoHashMapUnmanaged(EntityType, T).empty;
         return Event{
-            .handle = undefined,
+            .handle = newPtr,
             .clear = (struct {
                 pub fn clear(self: *Event, _allocator: std.mem.Allocator) void {
                     var ptr = self.cast(T);
@@ -26,7 +27,7 @@ pub const Event = struct {
         };
     }
 
-    pub fn cast(self: *Event, comptime T: type) *std.HashMapUnmanaged(T) {
-        return @as(*std.HashMapUnmanaged(T), @ptrCast(@alignCast(self.handle)));
+    pub fn cast(self: *Event, comptime T: type) *std.AutoHashMapUnmanaged(EntityType, T) {
+        return @as(*std.AutoHashMapUnmanaged(EntityType, T), @ptrCast(@alignCast(self.handle)));
     }
 };

@@ -16,6 +16,7 @@ const Allocator = std.mem.Allocator;
 
 pub const EntityManager = struct {
     unused: std.ArrayListUnmanaged(SlimPointer),
+    destroyed: std.ArrayListUnmanaged(SlimPointer),
     archetypes: std.ArrayListUnmanaged(Archetype),
     entityMap: std.AutoArrayHashMapUnmanaged(EntityType, FatPointer),
     archetypeMap: std.AutoArrayHashMapUnmanaged(Bitset, ArchetypeType),
@@ -23,6 +24,7 @@ pub const EntityManager = struct {
 
     pub const init = EntityManager{
         .unused = .empty,
+        .destroyed = .empty,
         .archetypes = .empty,
         .entityMap = .empty,
         .archetypeMap = .empty,
@@ -31,6 +33,7 @@ pub const EntityManager = struct {
 
     pub fn deinit(self: *EntityManager, allocator: std.mem.Allocator) void {
         self.unused.deinit(allocator);
+        self.destroyed.deinit(allocator);
         for (self.archetypes.items) |*archetype| archetype.deinit(allocator);
         self.archetypes.deinit(allocator);
         self.entityMap.deinit(allocator);

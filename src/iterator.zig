@@ -1,4 +1,5 @@
 const std = @import("std");
+const EntityType = @import("entity.zig").EntityType;
 
 pub fn TupleOfArrayLists(comptime T: type) type {
     switch (@typeInfo(T)) {
@@ -89,6 +90,8 @@ pub fn TupleIterator(comptime T: type) type {
             if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
             return struct {
                 tBuffers: TupleOfBuffers(T),
+                entities: []const []const EntityType,
+                currentEntity: EntityType,
                 currentIndex: u32,
                 currentBuffer: u32,
 
@@ -96,7 +99,7 @@ pub fn TupleIterator(comptime T: type) type {
 
                 const Self = @This();
 
-                pub fn init(tBuffers: TupleOfBuffers(T), allocator: std.mem.Allocator) Self {
+                pub fn init(tBuffers: TupleOfBuffers(T), entities: []const []const EntityType, allocator: std.mem.Allocator) Self {
                     std.debug.assert(tBuffers.len > 0);
                     inline for (0..@"struct".fields.len) |i| {
                         std.debug.assert(tBuffers[i].len > 0);
@@ -105,6 +108,8 @@ pub fn TupleIterator(comptime T: type) type {
 
                     return .{
                         .tBuffers = tBuffers,
+                        .entities = entities,
+                        .currentEntity = entities[0][0],
                         .currentIndex = 0,
                         .currentBuffer = 0,
                         .allocator = allocator,
@@ -118,6 +123,9 @@ pub fn TupleIterator(comptime T: type) type {
                     }
 
                     self.tBuffers = undefined;
+
+                    self.allocator.free(self.entities);
+                    self.entities = undefined;
                 }
 
                 pub fn reset(self: *Self) void {
@@ -135,6 +143,7 @@ pub fn TupleIterator(comptime T: type) type {
                     var value: TupleOfComponents(T) = undefined;
                     inline for (0..@"struct".fields.len) |i| {
                         value[i] = &self.tBuffers[i][self.currentBuffer][self.currentIndex];
+                        self.currentEntity = self.entities[self.currentBuffer][self.currentIndex];
                     }
 
                     if (self.currentIndex + 1 < self.tBuffers[0][self.currentBuffer].len) {
@@ -152,6 +161,12 @@ pub fn TupleIterator(comptime T: type) type {
                 pub fn isNext(self: *Self) bool {
                     return self.currentBuffer < self.tBuffers[0].len;
                 }
+
+                /// Returns current entity for components that where called with the last next()
+                /// If next() return null and this is called this returns the last valid entity.
+                pub fn getCurrentEntity(self: *Self) EntityType {
+                    return self.currentEntity;
+                }
             };
         },
         else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple or a [][]T type."),
@@ -161,6 +176,8 @@ pub fn TupleIterator(comptime T: type) type {
 pub fn Iterator(comptime T: type) type {
     return struct {
         buffers: [][]T,
+        entities: []const []const EntityType,
+        currentEntity: EntityType,
         currentIndex: u32,
         currentBuffer: u32,
 
@@ -168,13 +185,15 @@ pub fn Iterator(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn init(buffers: [][]T, allocator: std.mem.Allocator) Self {
+        pub fn init(buffers: [][]T, entities: []const []const EntityType, allocator: std.mem.Allocator) Self {
             std.debug.assert(buffers.len > 0);
             std.debug.assert(buffers[0].len > 0);
 
             return .{
                 .buffers = buffers,
+                .entities = entities,
                 .currentIndex = 0,
+                .currentEntity = entities[0][0],
                 .currentBuffer = 0,
                 .allocator = allocator,
             };
@@ -184,6 +203,8 @@ pub fn Iterator(comptime T: type) type {
         pub fn deinit(self: *Self) void {
             self.allocator.free(self.buffers);
             self.buffers = undefined;
+            self.allocator.free(self.entities);
+            self.entities = undefined;
         }
 
         pub fn reset(self: *Self) void {
@@ -199,6 +220,7 @@ pub fn Iterator(comptime T: type) type {
             }
 
             const value: *T = &self.buffers[self.currentBuffer][self.currentIndex];
+            self.currentEntity = self.entities[self.currentBuffer][self.currentIndex];
 
             if (self.currentIndex + 1 < self.buffers[self.currentBuffer].len) {
                 self.currentIndex += 1;
@@ -214,6 +236,12 @@ pub fn Iterator(comptime T: type) type {
 
         pub fn isNext(self: *Self) bool {
             return self.currentBuffer < self.buffers.len;
+        }
+
+        /// Returns current entity for components that where called with the last next()
+        /// If next() return null and this is called this returns the last valid entity.
+        pub fn getCurrentEntity(self: *Self) EntityType {
+            return self.currentEntity;
         }
     };
 }

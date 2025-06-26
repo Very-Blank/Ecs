@@ -40,25 +40,29 @@ pub fn Ecs(comptime events: type) type {
         entityManager: EntityManager,
         componentManager: ComponentManager,
         singletonManager: SingletonManager,
-        eventManager: if (eventsEnabled) EventManager else void,
+        eventManager: if (eventsEnabled) EventManager(events) else void,
         allocator: std.mem.Allocator,
 
-        pub fn init(allocator: std.mem.Allocator) Ecs {
-            return Ecs{
+        const Self = @This();
+
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return Self{
                 .entityManager = EntityManager.init,
                 .componentManager = ComponentManager.init,
                 .singletonManager = SingletonManager.init,
+                .eventManager = if (eventsEnabled) EventManager(events).init(allocator) catch unreachable,
                 .allocator = allocator,
             };
         }
 
-        pub fn deinit(self: *Ecs) void {
+        pub fn deinit(self: *Self) void {
             self.entityManager.deinit(self.allocator);
             self.componentManager.deinit(self.allocator);
             self.singletonManager.deinit(self.allocator);
+            if (eventsEnabled) self.eventManager.deinit(self.allocator);
         }
 
-        pub fn createEntity(self: *Ecs, comptime T: type, componets: T) SlimPointer {
+        pub fn createEntity(self: *Self, comptime T: type, componets: T) SlimPointer {
             switch (@typeInfo(T)) {
                 .@"struct" => |@"struct"| {
                     if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
@@ -99,8 +103,8 @@ pub fn Ecs(comptime events: type) type {
                             .componentArrays = .empty,
                             .components = 0,
 
-                            .entityToRowMap = std.AutoHashMapUnmanaged(EntityType, Row).empty,
-                            .rowToEntityMap = std.AutoHashMapUnmanaged(Row, EntityType).empty,
+                            .entityToRowMap = std.AutoArrayHashMapUnmanaged(EntityType, Row).empty,
+                            .rowToEntityMap = std.AutoArrayHashMapUnmanaged(Row, EntityType).empty,
                             .componentMap = .empty,
                         }) catch unreachable;
 
@@ -130,13 +134,21 @@ pub fn Ecs(comptime events: type) type {
             }
         }
 
-        // This queues up the entity to be destroyed
-        pub fn destroyEntity() void {}
+        /// This queues up the entity to be destroyed
+        pub fn destroyEntity(self: *Self, entity: SlimPointer) void {
+            self.entityManager.destroyed.append(self.allocator, entity) catch unreachable;
+        }
 
-        pub fn clearDestroyedEntitys() void {}
+        pub fn clearDestroyedEntitys(self: *Self) void {
+            for (self.entityManager.destroyed.items) |destroyed| {
+                self.deleteEntity(destroyed);
+            }
+
+            self.entityManager.destroyed.clearAndFree(self.allocator);
+        }
 
         /// SlimPointer becomes invalid!
-        fn deleteEntity(self: *Ecs, slimPointer: SlimPointer) void {
+        fn deleteEntity(self: *Self, slimPointer: SlimPointer) void {
             const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
             std.debug.assert(slimPointer.generation == fatPointer.generation);
 
@@ -154,8 +166,8 @@ pub fn Ecs(comptime events: type) type {
             } else {
                 const entity = archetype.rowToEntityMap.get(Row.make(archetype.components - 1)).?;
 
-                _ = archetype.rowToEntityMap.remove(Row.make(archetype.components - 1));
-                _ = archetype.entityToRowMap.remove(slimPointer.entity);
+                _ = archetype.rowToEntityMap.swapRemove(Row.make(archetype.components - 1));
+                _ = archetype.entityToRowMap.swapRemove(slimPointer.entity);
 
                 archetype.entityToRowMap.put(self.allocator, entity, row) catch unreachable;
                 archetype.rowToEntityMap.put(self.allocator, row, entity) catch unreachable;
@@ -167,7 +179,7 @@ pub fn Ecs(comptime events: type) type {
             self.entityManager.unused.append(self.allocator, slimPointer) catch unreachable;
         }
 
-        pub fn entityIsValid(self: *Ecs, slimPointer: SlimPointer) bool {
+        pub fn entityIsValid(self: *Self, slimPointer: SlimPointer) bool {
             if (self.entityManager.entityMap.get(slimPointer.entity)) |fatPointer| {
                 return slimPointer.generation == fatPointer.generation;
             }
@@ -175,7 +187,7 @@ pub fn Ecs(comptime events: type) type {
             return false;
         }
 
-        pub fn entityHasComponent(self: *Ecs, slimPointer: SlimPointer, comptime T: type) bool {
+        pub fn entityHasComponent(self: *Self, slimPointer: SlimPointer, comptime T: type) bool {
             const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
             std.debug.assert(slimPointer.generation == fatPointer.generation);
 
@@ -187,7 +199,7 @@ pub fn Ecs(comptime events: type) type {
             return false;
         }
 
-        pub fn getEntityComponent(self: *Ecs, slimPointer: SlimPointer, comptime T: type) *T {
+        pub fn getEntityComponent(self: *Self, slimPointer: SlimPointer, comptime T: type) *T {
             const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
             std.debug.assert(slimPointer.generation == fatPointer.generation);
 
@@ -217,7 +229,7 @@ pub fn Ecs(comptime events: type) type {
 
         /// Gets all archetypes that have all of the components in the tuple and returns them as iterators.
         /// Remember to call deinit on the iterator.
-        pub fn getComponentIterators(self: *Ecs, comptime included: type, comptime excluded: type) ?getReturnType(included) {
+        pub fn getComponentIterators(self: *Self, comptime included: type, comptime excluded: type) ?getReturnType(included) {
             const includedStruct = getTupleInfo(included, false);
             const excludedStruct = getTupleInfo(excluded, true);
 
@@ -239,12 +251,16 @@ pub fn Ecs(comptime events: type) type {
 
                 if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) unreachable;
 
+                var entities = std.ArrayListUnmanaged([]EntityType).empty;
+
                 for (self.entityManager.archetypes.items) |*archetype| {
                     if (wanted.intersectWith(archetype.bitset).eql(wanted) and notWanted.intersectWith(archetype.bitset).eql(Bitset.initEmpty()) and archetype.components > 0) {
                         inline for (includedStruct.fields, 0..) |field, i| {
                             const componentId = self.componentManager.hashMap.get(ULandType.getHash(field.type)).?;
                             tuple[i].append(self.allocator, archetype.componentArrays.items[archetype.componentMap.get(componentId).?].cast(field.type).items) catch unreachable;
                         }
+
+                        entities.append(self.allocator, archetype.entityToRowMap.keys()) catch unreachable;
                     }
                 }
 
@@ -253,23 +269,26 @@ pub fn Ecs(comptime events: type) type {
                 var tBuffers: iterator.TupleOfBuffers(included) = undefined;
                 inline for (0..includedStruct.fields.len) |i| tBuffers[i] = tuple[i].toOwnedSlice(self.allocator) catch unreachable;
 
-                return iterator.TupleIterator(included).init(tBuffers, self.allocator);
+                return iterator.TupleIterator(included).init(tBuffers, entities.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
             } else {
                 var list = std.ArrayListUnmanaged([]includedStruct.fields[0].type).empty;
                 if (self.componentManager.hashMap.get(ULandType.getHash(includedStruct.fields[0].type))) |componentId| wanted.set(componentId.value()) else return null;
 
                 if (!wanted.intersectWith(notWanted).eql(Bitset.initEmpty())) unreachable;
 
+                var entities = std.ArrayListUnmanaged([]EntityType).empty;
+
                 for (self.entityManager.archetypes.items) |*archetype| {
                     if (wanted.intersectWith(archetype.bitset).eql(wanted) and notWanted.intersectWith(archetype.bitset).eql(Bitset.initEmpty()) and archetype.components > 0) {
                         const componentId = self.componentManager.hashMap.get(ULandType.getHash(includedStruct.fields[0].type)).?;
                         list.append(self.allocator, archetype.componentArrays.items[archetype.componentMap.get(componentId).?].cast(includedStruct.fields[0].type).items) catch unreachable;
+                        entities.append(self.allocator, archetype.entityToRowMap.keys()) catch unreachable;
                     }
                 }
 
                 if (list.items.len == 0) return null;
 
-                return iterator.Iterator(includedStruct.fields[0].type).init(list.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+                return iterator.Iterator(includedStruct.fields[0].type).init(list.toOwnedSlice(self.allocator) catch unreachable, entities.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
             }
         }
 
@@ -284,7 +303,7 @@ pub fn Ecs(comptime events: type) type {
             }
         }
 
-        pub fn createSingleton(self: *Ecs, comptime T: type) SingletonType {
+        pub fn createSingleton(self: *Self, comptime T: type) SingletonType {
             const @"struct" = getTupleInfo(T, false);
             var bitset = Bitset.initEmpty();
 
@@ -301,7 +320,7 @@ pub fn Ecs(comptime events: type) type {
             return SingletonType.make(@intCast(self.singletonManager.singletons.items.len - 1));
         }
 
-        pub fn registerSingletonToEntity(self: *Ecs, singleton: SingletonType, slimPointer: SlimPointer) !void {
+        pub fn registerSingletonToEntity(self: *Self, singleton: SingletonType, slimPointer: SlimPointer) !void {
             const fatPointer = self.entityManager.entityMap.get(slimPointer.entity).?;
             std.debug.assert(slimPointer.generation == fatPointer.generation);
             std.debug.assert(singleton.value() < self.singletonManager.singletons.items.len);
@@ -317,7 +336,7 @@ pub fn Ecs(comptime events: type) type {
             }
         }
 
-        pub fn getSingletonsEntity(self: *Ecs, singleton: SingletonType) ?SlimPointer {
+        pub fn getSingletonsEntity(self: *Self, singleton: SingletonType) ?SlimPointer {
             if (self.singletonManager.singletonToEntityMap.get(singleton)) |entity| {
                 if (self.entityIsValid(entity)) return entity else {
                     _ = self.singletonManager.singletonToEntityMap.remove(singleton);
@@ -328,16 +347,41 @@ pub fn Ecs(comptime events: type) type {
             return null;
         }
 
-        pub fn getEntityEvent(comptime T: type) T {
-            if (!eventsEnabled) @compileError("Ecs has no event system enabled. Cannot get event of type " ++ @typeName(T));
+        pub fn getEntityEvent(self: *Self, comptime T: type, entity: SlimPointer) ?T {
+            if (!eventsEnabled) @compileError("Self has no event system enabled. Cannot get event of type " ++ @typeName(T));
+
+            std.debug.assert(self.entityIsValid(entity));
+            for (self.eventManager.keys, 0..) |key, i| {
+                if (key == ULandType.getHash(T)) {
+                    const eventMap = self.eventManager.events[i].cast(T);
+                    return eventMap.get(entity.entity);
+                }
+            }
+
+            unreachable; //User put bs type
         }
 
-        pub fn registerEntityEvent(comptime T: type) T {
-            if (!eventsEnabled) @compileError("Ecs has no event system enabled. Cannot get event of type " ++ @typeName(T));
+        pub fn addEntityEvent(self: *Self, comptime T: type, event: T, entity: EntityType) void {
+            if (!eventsEnabled) @compileError("Self has no event system enabled.");
+            std.debug.assert(self.entityManager.entityMap.get(entity) != null);
+
+            for (self.eventManager.keys, 0..) |key, i| {
+                if (key == ULandType.getHash(T)) {
+                    const eventMap = self.eventManager.events[i].cast(T);
+                    eventMap.put(self.allocator, entity, event) catch unreachable;
+
+                    return;
+                }
+            }
+
+            unreachable; //User put bs type
         }
 
-        pub fn clearEntityEvents() void {
-            if (!eventsEnabled) @compileError("Ecs has no event system enabled.");
+        pub fn clearEntityEvents(self: *Self) void {
+            if (!eventsEnabled) @compileError("Self has no event system enabled.");
+            for (&self.eventManager.events) |*event| {
+                event.clear(event, self.allocator);
+            }
         }
     };
 }

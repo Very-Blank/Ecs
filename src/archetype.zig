@@ -39,8 +39,8 @@ pub const Archetype = struct {
     componentArrays: std.ArrayListUnmanaged(ErasedArray),
     components: u32,
 
-    entityToRowMap: std.AutoHashMapUnmanaged(EntityType, Row),
-    rowToEntityMap: std.AutoHashMapUnmanaged(Row, EntityType),
+    entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, Row),
+    rowToEntityMap: std.AutoArrayHashMapUnmanaged(Row, EntityType),
     componentMap: std.AutoHashMapUnmanaged(ComponentType, u32),
 
     pub fn deinit(self: *Archetype, allocator: std.mem.Allocator) void {
