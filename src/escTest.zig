@@ -335,15 +335,15 @@ test "Testing event system" {
     ecs.addEntityEvent(HitEvent, .{ .damage = 0.5 }, positionEntity.entity);
 
     // Test retrieving the event
-    const event: ?HitEvent = ecs.getEntityEvent(HitEvent, positionEntity);
+    const event: ?[]HitEvent = ecs.getEntityEvent(HitEvent, positionEntity.entity);
     try std.testing.expect(event != null);
-    try std.testing.expectEqual(0.5, event.?.damage);
+    try std.testing.expectEqual(0.5, event.?[0].damage);
 
     // Test that other entities don't have this event
-    const movingEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, movingEntity);
+    const movingEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, movingEntity.entity);
     try std.testing.expectEqual(null, movingEvent);
 
-    const collidingEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, collidingEntity);
+    const collidingEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, collidingEntity.entity);
     try std.testing.expectEqual(null, collidingEvent);
 
     // Test adding events to multiple entities
@@ -351,37 +351,37 @@ test "Testing event system" {
     ecs.addEntityEvent(HitEvent, .{ .damage = 2.5 }, collidingEntity.entity);
 
     // Verify all entities have their respective events
-    const positionEntityEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, positionEntity);
-    const movingEntityEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, movingEntity);
-    const collidingEntityEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, collidingEntity);
+    const positionEntityEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, positionEntity.entity);
+    const movingEntityEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, movingEntity.entity);
+    const collidingEntityEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, collidingEntity.entity);
 
     try std.testing.expect(positionEntityEvent != null);
     try std.testing.expect(movingEntityEvent != null);
     try std.testing.expect(collidingEntityEvent != null);
 
-    try std.testing.expectEqual(0.5, positionEntityEvent.?.damage);
-    try std.testing.expectEqual(1.0, movingEntityEvent.?.damage);
-    try std.testing.expectEqual(2.5, collidingEntityEvent.?.damage);
+    try std.testing.expectEqual(0.5, positionEntityEvent.?[0].damage);
+    try std.testing.expectEqual(1.0, movingEntityEvent.?[0].damage);
+    try std.testing.expectEqual(2.5, collidingEntityEvent.?[0].damage);
 
     // Test overwriting an existing event
     ecs.addEntityEvent(HitEvent, .{ .damage = 10.0 }, positionEntity.entity);
-    const updatedEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, positionEntity);
+    const updatedEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, positionEntity.entity);
     try std.testing.expect(updatedEvent != null);
-    try std.testing.expectEqual(10.0, updatedEvent.?.damage);
+    try std.testing.expectEqual(10.0, updatedEvent.?[1].damage);
 
     // Test clearing events
     ecs.clearEntityEvents();
 
     // Verify all events are cleared
-    try std.testing.expectEqual(null, ecs.getEntityEvent(HitEvent, positionEntity));
-    try std.testing.expectEqual(null, ecs.getEntityEvent(HitEvent, movingEntity));
-    try std.testing.expectEqual(null, ecs.getEntityEvent(HitEvent, collidingEntity));
+    try std.testing.expectEqual(null, ecs.getEntityEvent(HitEvent, positionEntity.entity));
+    try std.testing.expectEqual(null, ecs.getEntityEvent(HitEvent, movingEntity.entity));
+    try std.testing.expectEqual(null, ecs.getEntityEvent(HitEvent, collidingEntity.entity));
 
     // Test adding events after clearing
     ecs.addEntityEvent(HitEvent, .{ .damage = 3.14 }, positionEntity.entity);
-    const afterClearEvent: ?HitEvent = ecs.getEntityEvent(HitEvent, positionEntity);
+    const afterClearEvent: ?[]HitEvent = ecs.getEntityEvent(HitEvent, positionEntity.entity);
     try std.testing.expect(afterClearEvent != null);
-    try std.testing.expectEqual(3.14, afterClearEvent.?.damage);
+    try std.testing.expectEqual(3.14, afterClearEvent.?[0].damage);
 }
 
 test "getCurrentEntity with iterator and event system" {
@@ -429,17 +429,17 @@ test "getCurrentEntity with iterator and event system" {
     try std.testing.expectEqual(processedEntities[2], lastEntity);
 
     // Verify that all entities received the correct events
-    const event1 = ecs.getEntityEvent(HitEvent, entity1);
-    const event2 = ecs.getEntityEvent(HitEvent, entity2);
-    const event3 = ecs.getEntityEvent(HitEvent, entity3);
+    const event1 = ecs.getEntityEvent(HitEvent, entity1.entity);
+    const event2 = ecs.getEntityEvent(HitEvent, entity2.entity);
+    const event3 = ecs.getEntityEvent(HitEvent, entity3.entity);
 
     try std.testing.expect(event1 != null);
     try std.testing.expect(event2 != null);
     try std.testing.expect(event3 != null);
 
-    try std.testing.expectEqual(1.0, event1.?.damage); // 10 * 0.1
-    try std.testing.expectEqual(3.0, event2.?.damage); // 30 * 0.1
-    try std.testing.expectEqual(5.0, event3.?.damage); // 50 * 0.1
+    try std.testing.expectEqual(1.0, event1.?[0].damage); // 10 * 0.1
+    try std.testing.expectEqual(3.0, event2.?[0].damage); // 30 * 0.1
+    try std.testing.expectEqual(5.0, event3.?[0].damage); // 50 * 0.1
 
     // Verify that the processed entities match our created entities
     // Note: Order might vary depending on your archetype implementation
@@ -499,16 +499,16 @@ test "getCurrentEntity with TupleIterator" {
     try std.testing.expectEqual(lastValidEntity, finalEntity);
 
     // Verify events were added correctly
-    const event1 = ecs.getEntityEvent(HitEvent, entity1);
-    const event2 = ecs.getEntityEvent(HitEvent, entity2);
+    const event1 = ecs.getEntityEvent(HitEvent, entity1.entity);
+    const event2 = ecs.getEntityEvent(HitEvent, entity2.entity);
 
     try std.testing.expect(event1 != null);
     try std.testing.expect(event2 != null);
 
     // entity1: velocity (10, 20) -> magnitude 30 -> damage 0.3
     // entity2: velocity (30, 40) -> magnitude 70 -> damage 0.7
-    try std.testing.expectApproxEqRel(0.3, event1.?.damage, 0.001);
-    try std.testing.expectApproxEqRel(0.7, event2.?.damage, 0.001);
+    try std.testing.expectApproxEqRel(0.3, event1.?[0].damage, 0.001);
+    try std.testing.expectApproxEqRel(0.7, event2.?[0].damage, 0.001);
 }
 
 test "getCurrentEntity before any iteration" {

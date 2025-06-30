@@ -347,14 +347,17 @@ pub fn Ecs(comptime events: type) type {
             return null;
         }
 
-        pub fn getEntityEvent(self: *Self, comptime T: type, entity: SlimPointer) ?T {
+        pub fn getEntityEvent(self: *Self, comptime T: type, entity: EntityType) ?[]T {
             if (!eventsEnabled) @compileError("Self has no event system enabled. Cannot get event of type " ++ @typeName(T));
 
-            std.debug.assert(self.entityIsValid(entity));
             for (self.eventManager.keys, 0..) |key, i| {
                 if (key == ULandType.getHash(T)) {
                     const eventMap = self.eventManager.events[i].cast(T);
-                    return eventMap.get(entity.entity);
+                    if (eventMap.get(entity)) |list| {
+                        return list.items;
+                    } else {
+                        return null;
+                    }
                 }
             }
 
@@ -367,8 +370,15 @@ pub fn Ecs(comptime events: type) type {
 
             for (self.eventManager.keys, 0..) |key, i| {
                 if (key == ULandType.getHash(T)) {
-                    const eventMap = self.eventManager.events[i].cast(T);
-                    eventMap.put(self.allocator, entity, event) catch unreachable;
+                    var eventMap = self.eventManager.events[i].cast(T);
+                    if (eventMap.getPtr(entity)) |list| {
+                        list.append(self.allocator, event) catch unreachable;
+                    } else {
+                        var list: std.ArrayListUnmanaged(T) = .empty;
+                        list.append(self.allocator, event) catch unreachable;
+
+                        eventMap.put(self.allocator, entity, list) catch unreachable;
+                    }
 
                     return;
                 }
