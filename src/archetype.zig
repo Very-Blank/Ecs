@@ -24,14 +24,14 @@ pub const ArchetypeType = enum(u32) {
     }
 };
 
-pub const Row = enum(u32) {
+pub const RowType = enum(u32) {
     _,
 
-    pub inline fn make(@"u32": u32) Row {
+    pub inline fn make(@"u32": u32) RowType {
         return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": Row) u32 {
+    pub inline fn value(@"enum": RowType) u32 {
         return @intFromEnum(@"enum");
     }
 };
@@ -67,8 +67,9 @@ pub fn Archetype(comptime T: type) type {
         tags: [][]const u8,
         bitset: Bitset,
         container: Container(T),
-        entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, Row),
-        rowToEntityMap: std.AutoArrayHashMapUnmanaged(Row, EntityType),
+        entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
+        rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
+        entitys: u32,
 
         const Self = @This();
 
@@ -79,6 +80,7 @@ pub fn Archetype(comptime T: type) type {
                 .container = undefined,
                 .entityToRowMap = .empty,
                 .rowToEntityMap = .empty,
+                .entitys = 0,
             };
 
             inline for (0..@"struct".fields.len) |i| {
@@ -88,9 +90,17 @@ pub fn Archetype(comptime T: type) type {
             return result;
         }
 
-        pub fn append(components: T, allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity: EntityType, components: T, allocator: std.mem.Allocator) !void {
             inline for (0..@"struct".fields.len) |i| {
-                try result.container[i].append(allocator, components[i]);
+                try self.container[i].append(allocator, components[i]);
+            }
+        }
+
+        pub fn remove(self: *Self, entity: EntityType) void {
+            const rEntityRow: RowType = self.entityToRowMap.get(entity).?;
+
+            inline for (0..@"struct".fields.len) |i| {
+                try result.container[i].swapRemove();
             }
         }
 
@@ -117,8 +127,8 @@ pub const Archetype = struct {
     componentArrays: std.ArrayListUnmanaged(ErasedArray),
     components: u32,
 
-    entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, Row),
-    rowToEntityMap: std.AutoArrayHashMapUnmanaged(Row, EntityType),
+    entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
+    rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
     componentMap: std.AutoHashMapUnmanaged(ComponentType, u32),
 
     pub fn deinit(self: *Archetype, allocator: std.mem.Allocator) void {
