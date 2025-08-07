@@ -62,6 +62,7 @@ pub fn Ecs(comptime events: type) type {
             if (eventsEnabled) self.eventManager.deinit(self.allocator);
         }
 
+        /// Creates a new entity, this can invalidate any pointers you have to the any entity data.
         pub fn createEntity(self: *Self, comptime T: type, componets: T) SlimPointer {
             switch (@typeInfo(T)) {
                 .@"struct" => |@"struct"| {
