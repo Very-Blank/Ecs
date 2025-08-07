@@ -47,13 +47,17 @@ pub const DeinitType = enum {
                                 if (pointer.child == T) {
                                     return .nonAllocator;
                                 }
+
                                 return .invalid;
                             },
-                            else => return,
+                            else => return .invalid,
                         }
-                    } else if (@"fn".params.len == 2) {
+                    }
+
+                    if (@"fn".params.len == 2) {
                         const paramType1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
                         const paramType2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
+
                         switch (@typeInfo(paramType1)) {
                             .pointer => |pointer| {
                                 if (pointer.child == T and paramType2 == std.mem.Allocator) {

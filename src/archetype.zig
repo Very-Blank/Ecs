@@ -1,16 +1,10 @@
 const std = @import("std");
 
 const Bitset = @import("componentManager.zig").Bitset;
-const ComponentType = @import("componentManager.zig").ComponentType;
-
-const EntityType = @import("entity.zig").EntityType;
-const ErasedArray = @import("erasedArray.zig").ErasedArray;
-
-const MAX_COMPONENTS = @import("componentManager.zig").MAX_COMPONENTS;
-
+const EntityType = @import("ecs.zig").EntityType;
 const Allocator = std.mem.Allocator;
 
-const Helper = @import("helper.zig");
+const helper = @import("helper.zig");
 
 pub const ArchetypeType = enum(u32) {
     _,
@@ -24,20 +18,20 @@ pub const ArchetypeType = enum(u32) {
     }
 };
 
-pub const Row = enum(u32) {
+pub const RowType = enum(u32) {
     _,
 
-    pub inline fn make(@"u32": u32) Row {
+    pub inline fn make(@"u32": u32) RowType {
         return @enumFromInt(@"u32");
     }
 
-    pub inline fn value(@"enum": Row) u32 {
+    pub inline fn value(@"enum": RowType) u32 {
         return @intFromEnum(@"enum");
     }
 };
 
 pub fn Container(comptime T: type) type {
-    const @"struct": std.builtin.Type.Struct = Helper.getTuple(T);
+    const @"struct": std.builtin.Type.Struct = helper.getTuple(T);
     var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
 
     for (@"struct".fields, 0..) |field, i| {
@@ -55,30 +49,32 @@ pub fn Container(comptime T: type) type {
             .layout = .auto,
             .fields = &new_fields,
             .decls = &.{},
-            .is_tuple = false,
+            .is_tuple = true,
         },
     });
 }
 
 pub fn Archetype(comptime T: type) type {
-    const @"struct": std.builtin.Type.Struct = Helper.getStruct(T);
+    const @"struct": std.builtin.Type.Struct = helper.getStruct(T);
 
     return struct {
-        tags: [][]const u8,
+        tag: []const u8,
         bitset: Bitset,
         container: Container(T),
-        entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, Row),
-        rowToEntityMap: std.AutoArrayHashMapUnmanaged(Row, EntityType),
+        entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
+        rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
+        entitys: u32,
 
         const Self = @This();
 
-        pub fn init(tags: [][]const u8, bitset: Bitset) Self {
+        pub fn init(tag: []const u8, bitset: Bitset) Self {
             var result: Self = .{
-                .tags = tags,
+                .tag = tag,
                 .bitset = bitset,
                 .container = undefined,
                 .entityToRowMap = .empty,
                 .rowToEntityMap = .empty,
+                .entitys = 0,
             };
 
             inline for (0..@"struct".fields.len) |i| {
@@ -88,15 +84,49 @@ pub fn Archetype(comptime T: type) type {
             return result;
         }
 
-        pub fn append(components: T, allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity: EntityType, components: T, allocator: std.mem.Allocator) !void {
             inline for (0..@"struct".fields.len) |i| {
-                try result.container[i].append(allocator, components[i]);
+                try self.container[i].append(allocator, components[i]);
             }
+
+            try self.entityToRowMap.put(allocator, entity, RowType.make(self.entitys));
+            try self.rowToEntityMap.put(allocator, RowType.make(self.entitys), entity);
+
+            self.entitys += 1;
         }
 
-        pub fn deinit(self: *Archetype, allocator: std.mem.Allocator) void {
+        pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
+            const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
+                std.debug.print("Location: {any}, archetype expected that it owned an entity but it didn't. Entity was missing from the entityToRowMap hashmap.", .{@src()});
+                unreachable;
+            };
+
+            inline for (0..@"struct".fields.len) |i| {
+                self.container[i].swapRemove(allocator, row.value());
+            }
+
+            if (row.value() == self.entitys - 1 or self.entitys == 1) {
+                std.debug.assert(self.entityToRowMap.remove(entity));
+                std.debug.assert(self.rowToEntityMap.remove(row));
+            } else {
+                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(self.entitys - 1))) |endEntity| endEntity else {
+                    std.debug.print("Location: {any}, archetype expected that row had the corresponding entity but it was missing from the rowToEntityMap hashmap.", .{@src()});
+                    unreachable;
+                };
+
+                self.entityToRowMap.put(allocator, rowEndEntity, row);
+                self.rowToEntityMap.put(allocator, row, rowEndEntity);
+
+                std.debug.assert(self.entityToRowMap.remove(entity));
+                std.debug.assert(self.rowToEntityMap.remove(RowType.make(self.entitys - 1)));
+            }
+
+            self.entitys -= 1;
+        }
+
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             inline for (@"struct".fields, 0..) |field, i| {
-                switch (Helper.DeinitType.new(field.type)) {
+                switch (helper.DeinitType.new(field.type)) {
                     .nonAllocator => for (self.container[i].items) |value| {
                         value.deinit();
                     },
@@ -107,25 +137,8 @@ pub fn Archetype(comptime T: type) type {
                 }
 
                 self.container[i].deinit();
+                self.container[i] = .empty;
             }
         }
     };
 }
-
-pub const Archetype = struct {
-    bitset: Bitset,
-    componentArrays: std.ArrayListUnmanaged(ErasedArray),
-    components: u32,
-
-    entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, Row),
-    rowToEntityMap: std.AutoArrayHashMapUnmanaged(Row, EntityType),
-    componentMap: std.AutoHashMapUnmanaged(ComponentType, u32),
-
-    pub fn deinit(self: *Archetype, allocator: std.mem.Allocator) void {
-        for (self.componentArrays.items) |*array| array.deinit(array, allocator);
-        self.componentArrays.deinit(allocator);
-        self.entityToRowMap.deinit(allocator);
-        self.rowToEntityMap.deinit(allocator);
-        self.componentMap.deinit(allocator);
-    }
-};
