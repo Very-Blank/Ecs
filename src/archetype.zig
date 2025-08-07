@@ -64,7 +64,6 @@ pub fn Archetype(comptime T: type) type {
     const @"struct": std.builtin.Type.Struct = Helper.getStruct(T);
 
     return struct {
-        tags: [][]const u8,
         bitset: Bitset,
         container: Container(T),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
@@ -73,7 +72,7 @@ pub fn Archetype(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn init(tags: [][]const u8, bitset: Bitset) Self {
+        pub fn init(bitset: Bitset) Self {
             var result: Self = .{
                 .tags = tags,
                 .bitset = bitset,
