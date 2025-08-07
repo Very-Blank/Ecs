@@ -126,19 +126,49 @@ pub fn Archetype(comptime T: type) type {
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             inline for (@"struct".fields, 0..) |field, i| {
-                switch (helper.DeinitType.new(field.type)) {
-                    .nonAllocator => for (self.container[i].items) |value| {
-                        value.deinit();
-                    },
-                    .allocator => for (self.container[i].items) |value| {
-                        value.deinit(allocator);
-                    },
-                    else => {},
+                if (@hasDecl(field.type, "deinit")) {
+                    switch (@typeInfo(@TypeOf(T.deinit))) {
+                        .@"fn" => |@"fn"| {
+                            if (@"fn".params.len == 1) {
+                                const paramType = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                switch (@typeInfo(paramType)) {
+                                    .pointer => |pointer| {
+                                        if (pointer.child == T) {
+                                            for (self.container[i].items) |value| {
+                                                value.deinit();
+                                            }
+                                        }
+                                    },
+                                    else => {},
+                                }
+                            }
+
+                            if (@"fn".params.len == 2) {
+                                const paramType1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                const paramType2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
+
+                                switch (@typeInfo(paramType1)) {
+                                    .pointer => |pointer| {
+                                        if (pointer.child == T and paramType2 == std.mem.Allocator) {
+                                            for (self.container[i].items) |value| {
+                                                value.deinit(allocator);
+                                            }
+                                        }
+                                    },
+                                    else => {},
+                                }
+                            }
+                        },
+                        else => {},
+                    }
                 }
 
-                self.container[i].deinit();
+                self.container[i].deinit(allocator);
                 self.container[i] = .empty;
             }
+
+            self.entityToRowMap.deinit(allocator);
+            self.rowToEntityMap.deinit(allocator);
         }
     };
 }
