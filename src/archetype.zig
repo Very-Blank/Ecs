@@ -32,17 +32,22 @@ pub const RowType = enum(u32) {
 
 pub fn Container(comptime T: type) type {
     const @"struct": std.builtin.Type.Struct = helper.getTuple(T);
-    var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
+    var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = init: {
+        var fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
+        for (@"struct".fields, 0..) |field, i| {
+            if (@sizeOf(field.type) > 0) {
+                fields[i] = std.builtin.Type.StructField{
+                    .name = field.name,
+                    .type = std.ArrayListUnmanaged(field.type),
+                    .default_value_ptr = null,
+                    .is_comptime = false,
+                    .alignment = @alignOf(std.ArrayListUnmanaged(field.type)),
+                };
+            }
+        }
 
-    for (@"struct".fields, 0..) |field, i| {
-        new_fields[i] = std.builtin.Type.StructField{
-            .name = field.name,
-            .type = std.ArrayListUnmanaged(field.type),
-            .default_value_ptr = null,
-            .is_comptime = false,
-            .alignment = @alignOf(std.ArrayListUnmanaged(field.type)),
-        };
-    }
+        break :init fields;
+    };
 
     return @Type(.{
         .@"struct" = .{
@@ -55,37 +60,33 @@ pub fn Container(comptime T: type) type {
 }
 
 pub fn Archetype(comptime T: type) type {
-    const @"struct": std.builtin.Type.Struct = helper.getStruct(T);
+    const structNoZST: std.builtin.Type.Struct = helper.getTuple(helper.removeZST(T));
 
     return struct {
-        tag: []const u8,
-        bitset: Bitset,
-        container: Container(T),
+        comptime components: type = T,
+        container: Container(helper.removeZST(T)),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
         entitys: u32,
 
         const Self = @This();
 
-        pub fn init(tag: []const u8, bitset: Bitset) Self {
-            var result: Self = .{
-                .tag = tag,
-                .bitset = bitset,
-                .container = undefined,
-                .entityToRowMap = .empty,
-                .rowToEntityMap = .empty,
-                .entitys = 0,
-            };
+        pub const init = .{
+            .container = init: {
+                var container: Container(helper.removeZST(T)) = undefined;
+                for (0..structNoZST.fields.len) |i| {
+                    container[i] = .empty;
+                }
 
-            inline for (0..@"struct".fields.len) |i| {
-                result.container[i] = .empty;
-            }
-
-            return result;
-        }
+                break :init container;
+            },
+            .entityToRowMap = .empty,
+            .rowToEntityMap = .empty,
+            .entitys = 0,
+        };
 
         pub fn append(self: *Self, entity: EntityType, components: T, allocator: std.mem.Allocator) !void {
-            inline for (0..@"struct".fields.len) |i| {
+            inline for (0..structNoZST.fields.len) |i| {
                 try self.container[i].append(allocator, components[i]);
             }
 
@@ -97,11 +98,10 @@ pub fn Archetype(comptime T: type) type {
 
         pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
             const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
-                std.debug.print("Location: {any}, archetype expected that it owned an entity but it didn't. Entity was missing from the entityToRowMap hashmap.", .{@src()});
                 unreachable;
             };
 
-            inline for (0..@"struct".fields.len) |i| {
+            inline for (0..structNoZST.fields.len) |i| {
                 self.container[i].swapRemove(allocator, row.value());
             }
 
@@ -110,7 +110,6 @@ pub fn Archetype(comptime T: type) type {
                 std.debug.assert(self.rowToEntityMap.remove(row));
             } else {
                 const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(self.entitys - 1))) |endEntity| endEntity else {
-                    std.debug.print("Location: {any}, archetype expected that row had the corresponding entity but it was missing from the rowToEntityMap hashmap.", .{@src()});
                     unreachable;
                 };
 
@@ -125,7 +124,7 @@ pub fn Archetype(comptime T: type) type {
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            inline for (@"struct".fields, 0..) |field, i| {
+            inline for (structNoZST.fields, 0..) |field, i| {
                 if (@hasDecl(field.type, "deinit")) {
                     switch (@typeInfo(@TypeOf(T.deinit))) {
                         .@"fn" => |@"fn"| {

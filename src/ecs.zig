@@ -73,23 +73,30 @@ pub fn Ecs(comptime archetypesTuple: type) type {
 
     return struct {
         archetypes: Arhetypes(archetypesTuple),
+        entityToArchetypeMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
+        unusedEntitys: std.ArrayListUnmanaged(EntityType),
+        destoyedEntitys: std.ArrayListUnmanaged(EntityType),
+        entityCount: u32,
         allocator: std.mem.Allocator,
-        // entityMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
-        // archetypeMap: std.AutoArrayHashMapUnmanaged(Bitset, ArchetypeType),
 
         const Self = @This();
 
         pub fn init(allocator: std.mem.Allocator) Self {
-            var result: Self = .{
-                .archetypes = undefined,
+            return .{
+                .archetypes = init: {
+                    var archetypes: Arhetypes(archetypesTuple) = undefined;
+                    inline for (0..archetypes.len) |i| {
+                        archetypes[i] = .init;
+                    }
+
+                    break :init archetypes;
+                },
+                .entityToArchetypeMap = .empty,
+                .unusedEntitys = .empty,
+                .destroyedEntitys = .empty,
+                .entityCount = 0,
                 .allocator = allocator,
             };
-
-            inline for (archetypesInfo.fields, 0..) |field, i| {
-                result.archetypes[i] = Archetype(field.type).init(" ", Bitset.initEmpty());
-            }
-
-            return result;
         }
 
         pub fn deinit(self: *Self) void {
@@ -98,17 +105,83 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             }
         }
 
-        pub fn createEntity(self: *Self, comptime T: type, components: T) EntityPointer {
-            // new entity
-            inline for (archetypesInfo.fields, 0..) |field, i| {
-                if (field.type == T) {
-                    self.archetypes[i].append(EntityType.make(0), components, self.allocator) catch unreachable;
-
-                    return EntityPointer{ .entity = EntityType.make(0), .generation = .make(0) };
+        pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
+            if (self.entityToArchetypeMap.get(entityPtr.entity)) |archetypePtr| {
+                if (archetypePtr.generation == entityPtr.generation) {
+                    return true;
                 }
             }
 
-            @compileError("ARCHE TYPE NOT EXIST");
+            return false;
         }
+
+        pub fn createEntity(self: *Self, comptime T: type, components: T) EntityPointer {
+            const newEntity = init: {
+                if (self.unusedEntitys.items.len > 0) {
+                    break :init self.unusedEntitys.pop().?;
+                }
+
+                self.entityCount += 1;
+                break :init EntityType.make(self.entityCount - 1);
+            };
+
+            inline for (archetypesInfo.fields, 0..) |field, i| {
+                if (field.type == T) {
+                    self.archetypes[i].append(newEntity, components, self.allocator) catch unreachable;
+                    self.entityToArchetypeMap.put(self.allocator, newEntity, ArchetypeType.make(@intCast(i)));
+
+                    return EntityPointer{ .entity = newEntity, .generation = .make(0) };
+                }
+            }
+
+            @compileError("Supplied type: " ++ @typeName(T) ++ ", didn't have a corresponding archetype");
+        }
+
+        pub fn destroyEntity(self: *Self, entity: EntityType) void {
+            self.destoyedEntitys.append(self.allocator, entity) catch unreachable;
+        }
+
+        pub fn clearDestroyedEntitys(self: *Self) void {
+            for (self.destoyedEntitys.items) |entity| {
+                const archetypePtr = self.entityToArchetypeMap.get(entity).?;
+                try self.archetypes[archetypePtr.archetype.value()].remove(entity, self.allocator) catch unreachable;
+            }
+        }
+
+        pub fn getArchetype(self: *Self, comptime T: type) Archetype(T) {
+            inline for (self.archetypes) |archetype| {
+                if (T == archetype.components) {
+                    return archetype;
+                }
+            }
+
+            @compileError("Supplied type: " ++ @typeName(T) ++ ", didn't have a corresponding archetype");
+        }
+
+        pub fn isArchetypeMatch(comptime components: type, comptime include: type, comptime exclude: type) bool {
+            const componentsTuple = helper.getTuple(components);
+            const includeTuple = helper.getTuple(include);
+            const excludeTuple = helper.getTuple(exclude);
+
+            outer: inline for (includeTuple.fields) |iField| {
+                inline for (componentsTuple.fields) |cField| {
+                    if (iField.type == cField.type) continue :outer;
+                }
+
+                return false;
+            }
+
+            inline for (excludeTuple.fields) |iField| {
+                inline for (componentsTuple.fields) |cField| {
+                    if (iField.type == cField.type) return false;
+                }
+            }
+
+            return true;
+        }
+
+        pub fn getIterator() void {}
+
+        pub fn getTupleIterator() void {}
     };
 }
