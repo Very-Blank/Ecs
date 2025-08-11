@@ -155,7 +155,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
                 }
             }
 
-            @compileError("Supplied type: " ++ @typeName(T) ++ ", didn't have a corresponding archetype");
+            @compileError("Supplied type didn't have a corresponding archetype.");
         }
 
         pub fn isArchetypeMatch(comptime components: type, comptime include: type, comptime exclude: type) bool {
@@ -182,6 +182,17 @@ pub fn Ecs(comptime archetypesTuple: type) type {
 
         pub fn getIterator() void {}
 
-        pub fn getTupleIterator() void {}
+        pub fn getTupleIterator(self: *Self, comptime include: type, comptime exclude: type) void {
+            const maxSize = size: {
+                var size: usize = 0;
+                inline for (archetypesInfo.fields) |field| {
+                    if (isArchetypeMatch(field.type, include, exclude)) size += 1;
+                }
+
+                break :size size;
+            };
+
+            if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+        }
     };
 }
