@@ -71,7 +71,7 @@ pub fn Archetype(comptime T: type) type {
 
         const Self = @This();
 
-        pub const init = .{
+        pub const init: Self = .{
             .container = init: {
                 var container: Container(helper.removeZST(T)) = undefined;
                 for (0..structNoZST.fields.len) |i| {
@@ -84,44 +84,6 @@ pub fn Archetype(comptime T: type) type {
             .rowToEntityMap = .empty,
             .entitys = 0,
         };
-
-        pub fn append(self: *Self, entity: EntityType, components: T, allocator: std.mem.Allocator) !void {
-            inline for (0..structNoZST.fields.len) |i| {
-                try self.container[i].append(allocator, components[i]);
-            }
-
-            try self.entityToRowMap.put(allocator, entity, RowType.make(self.entitys));
-            try self.rowToEntityMap.put(allocator, RowType.make(self.entitys), entity);
-
-            self.entitys += 1;
-        }
-
-        pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
-            const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
-                unreachable;
-            };
-
-            inline for (0..structNoZST.fields.len) |i| {
-                self.container[i].swapRemove(allocator, row.value());
-            }
-
-            if (row.value() == self.entitys - 1 or self.entitys == 1) {
-                std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(row));
-            } else {
-                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(self.entitys - 1))) |endEntity| endEntity else {
-                    unreachable;
-                };
-
-                self.entityToRowMap.put(allocator, rowEndEntity, row);
-                self.rowToEntityMap.put(allocator, row, rowEndEntity);
-
-                std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(RowType.make(self.entitys - 1)));
-            }
-
-            self.entitys -= 1;
-        }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             inline for (structNoZST.fields, 0..) |field, i| {
@@ -168,6 +130,56 @@ pub fn Archetype(comptime T: type) type {
 
             self.entityToRowMap.deinit(allocator);
             self.rowToEntityMap.deinit(allocator);
+        }
+
+        pub fn append(self: *Self, entity: EntityType, components: T, allocator: std.mem.Allocator) !void {
+            inline for (0..structNoZST.fields.len) |i| {
+                try self.container[i].append(allocator, components[i]);
+            }
+
+            try self.entityToRowMap.put(allocator, entity, RowType.make(self.entitys));
+            try self.rowToEntityMap.put(allocator, RowType.make(self.entitys), entity);
+
+            self.entitys += 1;
+        }
+
+        pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
+            const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
+                unreachable;
+            };
+
+            inline for (0..structNoZST.fields.len) |i| {
+                self.container[i].swapRemove(allocator, row.value());
+            }
+
+            if (row.value() == self.entitys - 1 or self.entitys == 1) {
+                std.debug.assert(self.entityToRowMap.remove(entity));
+                std.debug.assert(self.rowToEntityMap.remove(row));
+            } else {
+                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(self.entitys - 1))) |endEntity| endEntity else {
+                    unreachable;
+                };
+
+                self.entityToRowMap.put(allocator, rowEndEntity, row);
+                self.rowToEntityMap.put(allocator, row, rowEndEntity);
+
+                std.debug.assert(self.entityToRowMap.remove(entity));
+                std.debug.assert(self.rowToEntityMap.remove(RowType.make(self.entitys - 1)));
+            }
+
+            self.entitys -= 1;
+        }
+
+        pub fn getEntitys(self: *Self) []EntityType {
+            return self.entityToRowMap.keys();
+        }
+
+        pub fn getComponentArray(self: *Self, comptime component: type) []component {
+            inline for (structNoZST.fields, 0..) |field, i| {
+                if (component == field.type) {
+                    return self.container[i].items;
+                }
+            }
         }
     };
 }

@@ -8,6 +8,8 @@ const Archetype = @import("archetype.zig").Archetype;
 const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
 
+const Iterator = @import("iterator.zig").Iterator;
+
 const helper = @import("helper.zig");
 
 pub const EntityType = enum(u32) {
@@ -68,6 +70,8 @@ pub fn Arhetypes(comptime T: type) type {
     });
 }
 
+// FIXME: generation isn't hadeled correctly currently all new entitys are set to zero even if they existed before.
+
 pub fn Ecs(comptime archetypesTuple: type) type {
     const archetypesInfo = helper.getTuple(archetypesTuple);
 
@@ -75,7 +79,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
         archetypes: Arhetypes(archetypesTuple),
         entityToArchetypeMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
         unusedEntitys: std.ArrayListUnmanaged(EntityType),
-        destoyedEntitys: std.ArrayListUnmanaged(EntityType),
+        destroyedEntitys: std.ArrayListUnmanaged(EntityType),
         entityCount: u32,
         allocator: std.mem.Allocator,
 
@@ -103,6 +107,10 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             inline for (0..archetypesInfo.fields.len) |i| {
                 self.archetypes[i].deinit(self.allocator);
             }
+
+            self.entityToArchetypeMap.deinit(self.allocator);
+            self.unusedEntitys.deinit(self.allocator);
+            self.destroyedEntitys.deinit(self.allocator);
         }
 
         pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
@@ -128,7 +136,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             inline for (archetypesInfo.fields, 0..) |field, i| {
                 if (field.type == T) {
                     self.archetypes[i].append(newEntity, components, self.allocator) catch unreachable;
-                    self.entityToArchetypeMap.put(self.allocator, newEntity, ArchetypeType.make(@intCast(i)));
+                    self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(i)), .generation = .make(0) }) catch unreachable;
 
                     return EntityPointer{ .entity = newEntity, .generation = .make(0) };
                 }
@@ -138,11 +146,11 @@ pub fn Ecs(comptime archetypesTuple: type) type {
         }
 
         pub fn destroyEntity(self: *Self, entity: EntityType) void {
-            self.destoyedEntitys.append(self.allocator, entity) catch unreachable;
+            self.destroyedEntitys.append(self.allocator, entity) catch unreachable;
         }
 
         pub fn clearDestroyedEntitys(self: *Self) void {
-            for (self.destoyedEntitys.items) |entity| {
+            for (self.destroyedEntitys.items) |entity| {
                 const archetypePtr = self.entityToArchetypeMap.get(entity).?;
                 try self.archetypes[archetypePtr.archetype.value()].remove(entity, self.allocator) catch unreachable;
             }
@@ -161,7 +169,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
         pub fn isArchetypeMatch(comptime components: type, comptime include: type, comptime exclude: type) bool {
             const componentsTuple = helper.getTuple(components);
             const includeTuple = helper.getTuple(include);
-            const excludeTuple = helper.getTuple(exclude);
+            const excludeTuple = helper.getTupleAllowEmpty(exclude);
 
             outer: inline for (includeTuple.fields) |iField| {
                 inline for (componentsTuple.fields) |cField| {
@@ -180,19 +188,77 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             return true;
         }
 
-        pub fn getIterator() void {}
+        // fn getInclude(comptime T: type) type {
+        //     var new_fields: [1]std.builtin.Type.StructField = std.builtin.Type.StructField{
+        //         .name = "0",
+        //         .type = []T,
+        //         .default_value_ptr = null,
+        //         .is_comptime = false,
+        //         .alignment = @alignOf([]T),
+        //     };
+        //
+        //     return @Type(.{
+        //         .@"struct" = .{
+        //             .layout = .auto,
+        //             .fields = &new_fields,
+        //             .decls = &.{},
+        //             .is_tuple = true,
+        //         },
+        //     });
+        // }
 
-        pub fn getTupleIterator(self: *Self, comptime include: type, comptime exclude: type) void {
-            const maxSize = size: {
-                var size: usize = 0;
-                inline for (archetypesInfo.fields) |field| {
-                    if (isArchetypeMatch(field.type, include, exclude)) size += 1;
+        pub fn getIterator(self: *Self, comptime component: type, comptime exclude: type) ?Iterator(component) {
+            comptime {
+                if (@sizeOf(component) == 0) @compileError("Can't iterate over componets that are zero sized.");
+                const maxSize = size: {
+                    var size: usize = 0;
+                    for (archetypesInfo.fields) |field| {
+                        if (isArchetypeMatch(field.type, struct { component }, exclude)) size += 1;
+                    }
+
+                    break :size size;
+                };
+
+                if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+            }
+
+            var componentArrays: std.ArrayListUnmanaged([]component) = .empty;
+            var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
+            errdefer componentArrays.deinit(self.allocator);
+            errdefer entitys.deinit(self.allocator);
+
+            inline for (archetypesInfo.fields, 0..) |field, j| {
+                if (comptime isArchetypeMatch(field.type, struct { component }, exclude)) {
+                    const array = self.archetypes[j].getComponentArray(component);
+                    if (array.len > 0) {
+                        componentArrays.append(self.allocator, array) catch unreachable;
+                        entitys.append(self.allocator, self.archetypes[j].getEntitys()) catch unreachable;
+                    }
                 }
+            }
 
-                break :size size;
-            };
+            if (componentArrays.items.len == 0) {
+                return null;
+            }
 
-            if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+            return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
+
+        // pub fn getTupleIterator(self: *Self, comptime include: type, comptime exclude: type) void {
+        //     comptime {
+        //         const maxSize = size: {
+        //             var size: usize = 0;
+        //             for (archetypesInfo.fields) |field| {
+        //                 if (isArchetypeMatch(field.type, include, exclude)) size += 1;
+        //             }
+        //
+        //             break :size size;
+        //         };
+        //
+        //         if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+        //     }
+        //
+        //     comptime const noZST = helper.removeZST(include);
+        // }
     };
 }

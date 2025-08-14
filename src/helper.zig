@@ -10,6 +10,16 @@ pub fn getTuple(comptime T: type) std.builtin.Type.Struct {
     }
 }
 
+pub fn getTupleAllowEmpty(comptime T: type) std.builtin.Type.Struct {
+    switch (@typeInfo(T)) {
+        .@"struct" => |@"struct"| {
+            if (!@"struct".is_tuple and @"struct".fields.len != 0) @compileError("Unexpected type, was given a struct. Expected a tuple.");
+            return @"struct";
+        },
+        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+    }
+}
+
 pub fn getStruct(comptime T: type) std.builtin.Type.Struct {
     switch (@typeInfo(T)) {
         .@"struct" => |@"struct"| {
@@ -21,7 +31,7 @@ pub fn getStruct(comptime T: type) std.builtin.Type.Struct {
 }
 
 /// Removes all zero sized types from a tuple
-fn removeZST(comptime T: type) type {
+pub fn removeZST(comptime T: type) type {
     const @"struct": std.builtin.Type.Struct = getTuple(T);
     var size: comptime_int = 0;
     inline for (@"struct".fields) |field| {
@@ -29,6 +39,8 @@ fn removeZST(comptime T: type) type {
             size += 1;
         }
     }
+
+    if (size == 0) @compileError("Tuple only had zero sized types");
 
     var new_fields: [size]std.builtin.Type.StructField = undefined;
 

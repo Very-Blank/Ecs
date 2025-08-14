@@ -41,9 +41,37 @@ test "Creating a new entity" {
             .{Position{ .x = 1, .y = 1 }},
         );
     }
+}
 
-    const archetype = ecs.getArchetype(struct { Position, Tag });
-    for (archetype.container[0].items) |position| {
-        std.debug.print("position value: {}\n", .{position});
+test "Iterating over a component" {
+    var ecs: Ecs(struct {
+        struct { Position, Tag },
+        struct { Position },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    for (0..100) |_| {
+        _ = ecs.createEntity(
+            struct { Position, Tag },
+            .{ Position{ .x = 5, .y = 5 }, .{} },
+        );
+        _ = ecs.createEntity(
+            struct { Position },
+            .{Position{ .x = 1, .y = 1 }},
+        );
     }
+
+    var iterator: Iterator(Position) = ecs.getIterator(Position, struct { Tag }).?;
+    defer iterator.deinit();
+
+    try std.testing.expect(iterator.buffers.len == 1);
+    try std.testing.expect(iterator.buffers[0].len == 100);
+
+    var iterator2: Iterator(Position) = ecs.getIterator(Position, struct {}).?;
+    defer iterator2.deinit();
+
+    try std.testing.expect(iterator2.buffers.len == 2);
+    try std.testing.expect(iterator2.buffers[0].len == 100);
+    try std.testing.expect(iterator2.buffers[1].len == 100);
 }
