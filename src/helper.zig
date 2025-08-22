@@ -30,6 +30,19 @@ pub fn getStruct(comptime T: type) std.builtin.Type.Struct {
     }
 }
 
+pub fn compileErrorIfZSTInStruct(comptime T: type) void {
+    switch (@typeInfo(T)) {
+        .@"struct" => |@"struct"| {
+            inline for (@"struct".fields) |field| {
+                if (@sizeOf(field.type) == 0) {
+                    @compileError("Struct has a ZST.");
+                }
+            }
+        },
+        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+    }
+}
+
 /// Removes all zero sized types from a tuple
 pub fn removeZST(comptime T: type) type {
     const @"struct": std.builtin.Type.Struct = getTuple(T);

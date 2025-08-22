@@ -62,13 +62,13 @@ test "Iterating over a component" {
         );
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, struct { Tag }).?;
+    var iterator: Iterator(Position) = ecs.getIterator(Position, struct {}, struct { Tag }).?;
     defer iterator.deinit();
 
     try std.testing.expect(iterator.buffers.len == 1);
     try std.testing.expect(iterator.buffers[0].len == 100);
 
-    var iterator2: Iterator(Position) = ecs.getIterator(Position, struct {}).?;
+    var iterator2: Iterator(Position) = ecs.getIterator(Position, struct {}, struct {}).?;
     defer iterator2.deinit();
 
     try std.testing.expect(iterator2.buffers.len == 2);

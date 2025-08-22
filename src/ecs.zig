@@ -166,12 +166,22 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             @compileError("Supplied type didn't have a corresponding archetype.");
         }
 
-        pub fn isArchetypeMatch(comptime components: type, comptime include: type, comptime exclude: type) bool {
+        pub fn isArchetypeMatch(comptime components: type, comptime include: type, comptime tags: type, comptime exclude: type) bool {
             const componentsTuple = helper.getTuple(components);
+            helper.compileErrorIfZSTInStruct(include);
             const includeTuple = helper.getTuple(include);
+            const tagsTuple = helper.getTupleAllowEmpty(tags);
             const excludeTuple = helper.getTupleAllowEmpty(exclude);
 
             outer: inline for (includeTuple.fields) |iField| {
+                inline for (componentsTuple.fields) |cField| {
+                    if (iField.type == cField.type) continue :outer;
+                }
+
+                return false;
+            }
+
+            outer: inline for (tagsTuple.fields) |iField| {
                 inline for (componentsTuple.fields) |cField| {
                     if (iField.type == cField.type) continue :outer;
                 }
@@ -207,7 +217,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
         //     });
         // }
 
-        pub fn getIterator(self: *Self, comptime component: type, comptime exclude: type) ?Iterator(component) {
+        pub fn getIterator(self: *Self, comptime component: type, comptime tags: type, comptime exclude: type) ?Iterator(component) {
             comptime {
                 if (@sizeOf(component) == 0) @compileError("Can't iterate over componets that are zero sized.");
                 const maxSize = size: {
@@ -228,7 +238,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             errdefer entitys.deinit(self.allocator);
 
             inline for (archetypesInfo.fields, 0..) |field, j| {
-                if (comptime isArchetypeMatch(field.type, struct { component }, exclude)) {
+                if (comptime isArchetypeMatch(field.type, struct { component } ++ tags, exclude)) {
                     const array = self.archetypes[j].getComponentArray(component);
                     if (array.len > 0) {
                         componentArrays.append(self.allocator, array) catch unreachable;
