@@ -123,8 +123,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             return false;
         }
 
-        // pub fn createEntity(self: *Self, comptime data: struct { comps: type, flags: type }, components: data.comps) EntityPointer {
-        pub fn createEntity(self: *Self, comptime T: type, components: T) EntityPointer {
+        pub fn createEntity(self: *Self, comptime template: struct { components: type, tags: type }, components: template.components) EntityPointer {
             const newEntity = init: {
                 if (self.unusedEntitys.items.len > 0) {
                     break :init self.unusedEntitys.pop().?;
@@ -135,7 +134,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             };
 
             inline for (archetypesInfo.fields, 0..) |field, i| {
-                if (field.type == T) {
+                if (field.type == template) {
                     self.archetypes[i].append(newEntity, components, self.allocator) catch unreachable;
                     self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(i)), .generation = .make(0) }) catch unreachable;
 
@@ -143,7 +142,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
                 }
             }
 
-            @compileError("Supplied type: " ++ @typeName(T) ++ ", didn't have a corresponding archetype");
+            @compileError("Supplied type: " ++ @typeName(template) ++ ", didn't have a corresponding archetype");
         }
 
         pub fn destroyEntity(self: *Self, entity: EntityType) void {
@@ -167,9 +166,8 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             @compileError("Supplied type didn't have a corresponding archetype.");
         }
 
-        pub fn isArchetypeMatch(comptime components: type, comptime include: type, comptime tags: type, comptime exclude: type) bool {
+        pub fn isArchetypeMatch(comptime template: type, comptime excludeTemplate: type) bool {
             const componentsTuple = helper.getTuple(components);
-            helper.compileErrorIfZSTInStruct(include);
             const includeTuple = helper.getTuple(include);
             const tagsTuple = helper.getTupleAllowEmpty(tags);
             const excludeTuple = helper.getTupleAllowEmpty(exclude);
