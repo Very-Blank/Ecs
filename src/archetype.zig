@@ -60,11 +60,43 @@ pub fn Container(comptime T: type) type {
 }
 
 pub fn Archetype(comptime T: type) type {
-    const structNoZST: std.builtin.Type.Struct = helper.getTuple(helper.removeZST(T));
+    const componentsType: type, const componentsInfo = info: switch (@typeInfo(T)) {
+        .@"struct" => |@"struct"| {
+            if (!@"struct".is_tuple) @compileError("Unexpected type, was given a struct. Expected a tuple.");
+            if (!@hasField(T, "components")) @compileError("Unexpected type, archetype templates must have a componentsInfo field.");
+            const componentsInfo = helper.getTuple(T.components);
+
+            inline for (componentsInfo.fields) |field| {
+                if (@sizeOf(field.type) == 0) {
+                    @compileError("Component was a ZST, was given component " ++ @typeName(field.type) ++ ".");
+                }
+            }
+
+            break :info .{ T.components, componentsInfo };
+        },
+        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+    };
+
+    const tagsType: type, _ = info: {
+        if (@hasField(T, "tags")) {
+            const tags = helper.getTupleAllowEmpty(T.tags);
+
+            inline for (tags.fields) |field| {
+                if (@sizeOf(field.type) != 0) {
+                    @compileError("Tag wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
+                }
+            }
+
+            break :info .{ T.tags, tags };
+        }
+
+        break :info .{ struct {}, @typeInfo(struct {}) };
+    };
 
     return struct {
-        comptime components: type = T,
-        container: Container(helper.removeZST(T)),
+        comptime componentsType: type = componentsType,
+        comptime tagsType: type = tagsType,
+        container: Container(T),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
         entitys: u32,
@@ -73,8 +105,8 @@ pub fn Archetype(comptime T: type) type {
 
         pub const init: Self = .{
             .container = init: {
-                var container: Container(helper.removeZST(T)) = undefined;
-                for (0..structNoZST.fields.len) |i| {
+                var container: Container(T) = undefined;
+                for (0..componentsInfo.fields.len) |i| {
                     container[i] = .empty;
                 }
 
@@ -86,7 +118,7 @@ pub fn Archetype(comptime T: type) type {
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            inline for (structNoZST.fields, 0..) |field, i| {
+            inline for (componentsInfo.fields, 0..) |field, i| {
                 if (@hasDecl(field.type, "deinit")) {
                     switch (@typeInfo(@TypeOf(T.deinit))) {
                         .@"fn" => |@"fn"| {
@@ -132,8 +164,8 @@ pub fn Archetype(comptime T: type) type {
             self.rowToEntityMap.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity: EntityType, components: T, allocator: std.mem.Allocator) !void {
-            inline for (0..structNoZST.fields.len) |i| {
+        pub fn append(self: *Self, entity: EntityType, components: componentsType, allocator: std.mem.Allocator) !void {
+            inline for (0..componentsInfo.fields.len) |i| {
                 try self.container[i].append(allocator, components[i]);
             }
 
@@ -148,7 +180,7 @@ pub fn Archetype(comptime T: type) type {
                 unreachable;
             };
 
-            inline for (0..structNoZST.fields.len) |i| {
+            inline for (0..componentsInfo.fields.len) |i| {
                 self.container[i].swapRemove(allocator, row.value());
             }
 
@@ -175,11 +207,13 @@ pub fn Archetype(comptime T: type) type {
         }
 
         pub fn getComponentArray(self: *Self, comptime component: type) []component {
-            inline for (structNoZST.fields, 0..) |field, i| {
+            inline for (componentsInfo.fields, 0..) |field, i| {
                 if (component == field.type) {
                     return self.container[i].items;
                 }
             }
+
+            @compileError("Component didn't exist in the archetype. Was given " ++ @typeName(component) ++ ".");
         }
     };
 }

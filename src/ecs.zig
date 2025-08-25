@@ -123,6 +123,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             return false;
         }
 
+        // pub fn createEntity(self: *Self, comptime data: struct { comps: type, flags: type }, components: data.comps) EntityPointer {
         pub fn createEntity(self: *Self, comptime T: type, components: T) EntityPointer {
             const newEntity = init: {
                 if (self.unusedEntitys.items.len > 0) {
