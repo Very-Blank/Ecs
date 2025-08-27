@@ -48,12 +48,28 @@ pub const ArchetypePointer = struct {
     generation: GenerationType,
 };
 
+fn itoa(comptime value: anytype) [:0]const u8 {
+    comptime var s: [:0]const u8 = "";
+    comptime var n = value;
+
+    if (n == 0) {
+        s = s ++ .{'0'};
+    } else {
+        while (n != 0) {
+            s = s ++ .{'0' + (n % 10)};
+            n = n / 10;
+        }
+    }
+
+    return s;
+}
+
 pub fn Arhetypes(comptime templates: []const Template) type {
     var newFields: [templates.len]std.builtin.Type.StructField = undefined;
 
-    for (templates, 0..) |template, i| {
+    inline for (templates, 0..) |template, i| {
         newFields[i] = std.builtin.Type.StructField{
-            .name = template.name,
+            .name = itoa(i),
             .type = Archetype(template),
             .default_value_ptr = null,
             .is_comptime = false,
