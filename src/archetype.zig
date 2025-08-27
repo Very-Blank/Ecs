@@ -59,44 +59,35 @@ pub fn Container(comptime T: type) type {
     });
 }
 
-pub fn Archetype(comptime T: type) type {
-    const componentsType: type, const componentsInfo = info: switch (@typeInfo(T)) {
-        .@"struct" => |@"struct"| {
-            if (!@"struct".is_tuple) @compileError("Unexpected type, was given a struct. Expected a tuple.");
-            if (!@hasField(T, "components")) @compileError("Unexpected type, archetype templates must have a componentsInfo field.");
-            const componentsInfo = helper.getTuple(T.components);
+pub fn Archetype(comptime template: struct { components: type, tags: type }) type {
+    const componentsType: type, const componentsInfo = info: {
+        const componentsInfo = helper.getTuple(template.components);
 
-            inline for (componentsInfo.fields) |field| {
-                if (@sizeOf(field.type) == 0) {
-                    @compileError("Component was a ZST, was given component " ++ @typeName(field.type) ++ ".");
-                }
+        inline for (componentsInfo.fields) |field| {
+            if (@sizeOf(field.type) == 0) {
+                @compileError("Component was a ZST, was given component " ++ @typeName(field.type) ++ ".");
             }
+        }
 
-            break :info .{ T.components, componentsInfo };
-        },
-        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
+        break :info .{ template.components, componentsInfo };
     };
 
     const tagsType: type, _ = info: {
-        if (@hasField(T, "tags")) {
-            const tags = helper.getTupleAllowEmpty(T.tags);
+        const tagsInfo = helper.getTupleAllowEmpty(template.tags);
 
-            inline for (tags.fields) |field| {
-                if (@sizeOf(field.type) != 0) {
-                    @compileError("Tag wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
-                }
+        inline for (tagsInfo.fields) |field| {
+            if (@sizeOf(field.type) != 0) {
+                @compileError("Tags wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
             }
-
-            break :info .{ T.tags, tags };
         }
 
-        break :info .{ struct {}, @typeInfo(struct {}) };
+        break :info .{ template.tags, tagsInfo };
     };
 
     return struct {
         comptime componentsType: type = componentsType,
         comptime tagsType: type = tagsType,
-        container: Container(T),
+        container: Container(componentsType),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
         entitys: u32,
@@ -105,7 +96,7 @@ pub fn Archetype(comptime T: type) type {
 
         pub const init: Self = .{
             .container = init: {
-                var container: Container(T) = undefined;
+                var container: Container(componentsType) = undefined;
                 for (0..componentsInfo.fields.len) |i| {
                     container[i] = .empty;
                 }
@@ -120,13 +111,13 @@ pub fn Archetype(comptime T: type) type {
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             inline for (componentsInfo.fields, 0..) |field, i| {
                 if (@hasDecl(field.type, "deinit")) {
-                    switch (@typeInfo(@TypeOf(T.deinit))) {
+                    switch (@typeInfo(@TypeOf(field.type.deinit))) {
                         .@"fn" => |@"fn"| {
                             if (@"fn".params.len == 1) {
                                 const paramType = if (@"fn".params[0].type) |@"type"| @"type" else return;
                                 switch (@typeInfo(paramType)) {
                                     .pointer => |pointer| {
-                                        if (pointer.child == T) {
+                                        if (pointer.child == field.type) {
                                             for (self.container[i].items) |value| {
                                                 value.deinit();
                                             }
@@ -142,7 +133,7 @@ pub fn Archetype(comptime T: type) type {
 
                                 switch (@typeInfo(paramType1)) {
                                     .pointer => |pointer| {
-                                        if (pointer.child == T and paramType2 == std.mem.Allocator) {
+                                        if (pointer.child == field.type and paramType2 == std.mem.Allocator) {
                                             for (self.container[i].items) |value| {
                                                 value.deinit(allocator);
                                             }

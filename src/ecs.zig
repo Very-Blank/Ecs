@@ -12,6 +12,8 @@ const Iterator = @import("iterator.zig").Iterator;
 
 const helper = @import("helper.zig");
 
+pub const Template = struct { components: type, tags: type };
+
 pub const EntityType = enum(u32) {
     _,
 
@@ -46,24 +48,23 @@ pub const ArchetypePointer = struct {
     generation: GenerationType,
 };
 
-pub fn Arhetypes(comptime T: type) type {
-    const @"struct": std.builtin.Type.Struct = helper.getTuple(T);
-    var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
+pub fn Arhetypes(comptime templates: []const Template) type {
+    var newFields: [templates.len]std.builtin.Type.StructField = undefined;
 
-    for (@"struct".fields, 0..) |field, i| {
-        new_fields[i] = std.builtin.Type.StructField{
-            .name = field.name,
-            .type = Archetype(field.type),
+    for (templates, 0..) |template, i| {
+        newFields[i] = std.builtin.Type.StructField{
+            .name = template.name,
+            .type = Archetype(template),
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = @alignOf(Archetype(field.type)),
+            .alignment = @alignOf(Archetype(template.type)),
         };
     }
 
     return @Type(.{
         .@"struct" = .{
             .layout = .auto,
-            .fields = &new_fields,
+            .fields = &newFields,
             .decls = &.{},
             .is_tuple = true,
         },
@@ -72,11 +73,11 @@ pub fn Arhetypes(comptime T: type) type {
 
 // FIXME: generation isn't hadeled correctly currently all new entitys are set to zero even if they existed before.
 
-pub fn Ecs(comptime archetypesTuple: type) type {
-    const archetypesInfo = helper.getTuple(archetypesTuple);
+pub fn Ecs(comptime templates: []const Template) type {
+    const templatesInfo = helper.getTuple(templates);
 
     return struct {
-        archetypes: Arhetypes(archetypesTuple),
+        archetypes: Arhetypes(templates),
         entityToArchetypeMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
         unusedEntitys: std.ArrayListUnmanaged(EntityType),
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
@@ -88,7 +89,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
                 .archetypes = init: {
-                    var archetypes: Arhetypes(archetypesTuple) = undefined;
+                    var archetypes: Arhetypes(templates) = undefined;
                     inline for (0..archetypes.len) |i| {
                         archetypes[i] = .init;
                     }
@@ -104,7 +105,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
         }
 
         pub fn deinit(self: *Self) void {
-            inline for (0..archetypesInfo.fields.len) |i| {
+            inline for (0..templatesInfo.fields.len) |i| {
                 self.archetypes[i].deinit(self.allocator);
             }
 
@@ -133,7 +134,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
                 break :init EntityType.make(self.entityCount - 1);
             };
 
-            inline for (archetypesInfo.fields, 0..) |field, i| {
+            inline for (templatesInfo.fields, 0..) |field, i| {
                 if (field.type == template) {
                     self.archetypes[i].append(newEntity, components, self.allocator) catch unreachable;
                     self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(i)), .generation = .make(0) }) catch unreachable;
@@ -142,7 +143,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
                 }
             }
 
-            @compileError("Supplied type: " ++ @typeName(template) ++ ", didn't have a corresponding archetype");
+            @compileError("Supplied template: " ++ @typeName(template) ++ ", didn't have a corresponding archetype");
         }
 
         pub fn destroyEntity(self: *Self, entity: EntityType) void {
@@ -156,23 +157,27 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             }
         }
 
-        pub fn getArchetype(self: *Self, comptime T: type) Archetype(T) {
-            inline for (self.archetypes) |archetype| {
-                if (T == archetype.components) {
-                    return archetype;
+        pub fn getArchetype(self: *Self, comptime template: struct { components: type, tags: type }) *Archetype(template) {
+            inline for (0..self.archetypes.len) |i| {
+                if (template.components == self.archetypes[i].componentsType and self.archetypes[i].tagsType == template.tags) {
+                    return &self.archetypes[i];
                 }
             }
 
-            @compileError("Supplied type didn't have a corresponding archetype.");
+            @compileError("Supplied template: " ++ @typeName(template) ++ ", didn't have a corresponding archetype");
         }
 
-        pub fn isArchetypeMatch(comptime template: type, comptime excludeTemplate: type) bool {
-            const componentsTuple = helper.getTuple(components);
-            const includeTuple = helper.getTuple(include);
-            const tagsTuple = helper.getTupleAllowEmpty(tags);
-            const excludeTuple = helper.getTupleAllowEmpty(exclude);
+        pub fn isArchetypeMatch(comptime template: struct { components: type, tags: type }, comptime includeTemplate: struct { components: type, tags: type }, comptime excludeTemplate: struct { components: type, tags: type }) bool {
+            const componentsTuple = helper.getTuple(template.components);
+            const tagsTuple = helper.getTupleAllowEmpty(template.tags);
 
-            outer: inline for (includeTuple.fields) |iField| {
+            const iComponentsTuple = helper.getTuple(includeTemplate.components);
+            const iTagsTuple = helper.getTupleAllowEmpty(includeTemplate.tags);
+
+            const eComponentsTuple = helper.getTuple(excludeTemplate.components);
+            const etagsTuple = helper.getTupleAllowEmpty(excludeTemplate.tags);
+
+            outer: inline for (iComponentsTuple.fields) |iField| {
                 inline for (componentsTuple.fields) |cField| {
                     if (iField.type == cField.type) continue :outer;
                 }
@@ -180,17 +185,23 @@ pub fn Ecs(comptime archetypesTuple: type) type {
                 return false;
             }
 
-            outer: inline for (tagsTuple.fields) |iField| {
-                inline for (componentsTuple.fields) |cField| {
+            outer: inline for (iTagsTuple.fields) |iField| {
+                inline for (tagsTuple.fields) |cField| {
                     if (iField.type == cField.type) continue :outer;
                 }
 
                 return false;
             }
 
-            inline for (excludeTuple.fields) |iField| {
+            inline for (eComponentsTuple.fields) |eField| {
                 inline for (componentsTuple.fields) |cField| {
-                    if (iField.type == cField.type) return false;
+                    if (eField.type == cField.type) return false;
+                }
+            }
+
+            inline for (etagsTuple.fields) |eField| {
+                inline for (tagsTuple.fields) |cField| {
+                    if (eField.type == cField.type) return false;
                 }
             }
 
@@ -221,7 +232,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
                 if (@sizeOf(component) == 0) @compileError("Can't iterate over componets that are zero sized.");
                 const maxSize = size: {
                     var size: usize = 0;
-                    for (archetypesInfo.fields) |field| {
+                    for (templatesInfo.fields) |field| {
                         if (isArchetypeMatch(field.type, struct { component }, exclude)) size += 1;
                     }
 
@@ -236,7 +247,7 @@ pub fn Ecs(comptime archetypesTuple: type) type {
             errdefer componentArrays.deinit(self.allocator);
             errdefer entitys.deinit(self.allocator);
 
-            inline for (archetypesInfo.fields, 0..) |field, j| {
+            inline for (templatesInfo.fields, 0..) |field, j| {
                 if (comptime isArchetypeMatch(field.type, struct { component } ++ tags, exclude)) {
                     const array = self.archetypes[j].getComponentArray(component);
                     if (array.len > 0) {
