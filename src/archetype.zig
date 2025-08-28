@@ -2,6 +2,7 @@ const std = @import("std");
 
 const Bitset = @import("componentManager.zig").Bitset;
 const EntityType = @import("ecs.zig").EntityType;
+const Template = @import("ecs.zig").Template;
 const Allocator = std.mem.Allocator;
 
 const helper = @import("helper.zig");
@@ -59,8 +60,8 @@ pub fn Container(comptime T: type) type {
     });
 }
 
-pub fn Archetype(comptime template: struct { components: type, tags: type }) type {
-    const componentsType: type, const componentsInfo = info: {
+pub fn Archetype(comptime template: Template) type {
+    const componentsInfo = info: {
         const componentsInfo = helper.getTuple(template.components);
 
         inline for (componentsInfo.fields) |field| {
@@ -69,25 +70,18 @@ pub fn Archetype(comptime template: struct { components: type, tags: type }) typ
             }
         }
 
-        break :info .{ template.components, componentsInfo };
+        break :info componentsInfo;
     };
 
-    const tagsType: type, _ = info: {
-        const tagsInfo = helper.getTupleAllowEmpty(template.tags);
-
-        inline for (tagsInfo.fields) |field| {
-            if (@sizeOf(field.type) != 0) {
-                @compileError("Tags wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
-            }
+    inline for (helper.getTupleAllowEmpty(template.tags).fields) |field| {
+        if (@sizeOf(field.type) != 0) {
+            @compileError("Tags wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
         }
-
-        break :info .{ template.tags, tagsInfo };
-    };
+    }
 
     return struct {
-        comptime componentsType: type = componentsType,
-        comptime tagsType: type = tagsType,
-        container: Container(componentsType),
+        comptime template: Template = template,
+        container: Container(template.components),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
         entitys: u32,
@@ -96,7 +90,7 @@ pub fn Archetype(comptime template: struct { components: type, tags: type }) typ
 
         pub const init: Self = .{
             .container = init: {
-                var container: Container(componentsType) = undefined;
+                var container: Container(template.components) = undefined;
                 for (0..componentsInfo.fields.len) |i| {
                     container[i] = .empty;
                 }
@@ -155,7 +149,7 @@ pub fn Archetype(comptime template: struct { components: type, tags: type }) typ
             self.rowToEntityMap.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity: EntityType, components: componentsType, allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity: EntityType, components: template.components, allocator: std.mem.Allocator) !void {
             inline for (0..componentsInfo.fields.len) |i| {
                 try self.container[i].append(allocator, components[i]);
             }
