@@ -43,40 +43,20 @@ pub fn compileErrorIfZSTInStruct(comptime T: type) void {
     }
 }
 
-/// Removes all zero sized types from a tuple
-pub fn removeZST(comptime T: type) type {
-    const @"struct": std.builtin.Type.Struct = getTuple(T);
-    var size: comptime_int = 0;
-    inline for (@"struct".fields) |field| {
-        if (@sizeOf(field.type) > 0) {
-            size += 1;
+pub fn itoa(comptime value: anytype) [:0]const u8 {
+    comptime var string: [:0]const u8 = "";
+    comptime var num = value;
+
+    if (num == 0) {
+        string = string ++ .{'0'};
+    } else {
+        while (num != 0) {
+            string = string ++ .{'0' + (num % 10)};
+            num = num / 10;
         }
     }
 
-    if (size == 0) @compileError("Tuple only had zero sized types");
-
-    var new_fields: [size]std.builtin.Type.StructField = undefined;
-
-    for (@"struct".fields, 0..) |field, i| {
-        if (@sizeOf(field.type) > 0) {
-            new_fields[i] = std.builtin.Type.StructField{
-                .name = field.name,
-                .type = field.type,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(field.type),
-            };
-        }
-    }
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &new_fields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
-    });
+    return string;
 }
 
 pub fn getFn(comptime T: type, name: []const u8) std.builtin.Type.Fn {

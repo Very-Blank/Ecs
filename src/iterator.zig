@@ -1,4 +1,5 @@
 const std = @import("std");
+const helper = @import("helper.zig");
 const EntityType = @import("ecs.zig").EntityType;
 
 pub fn TupleOfBuffers(comptime T: type) type {
@@ -8,7 +9,7 @@ pub fn TupleOfBuffers(comptime T: type) type {
             var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
             for (@"struct".fields, 0..) |field, i| {
                 new_fields[i] = std.builtin.Type.StructField{
-                    .name = &[2:0]u8{ '0' + @as(u8, @intCast(i)), 0 },
+                    .name = helper.itoa(i),
                     .type = [][]field.type,
                     .default_value_ptr = null,
                     .is_comptime = false,

@@ -49,28 +49,12 @@ pub const ArchetypePointer = struct {
     generation: GenerationType,
 };
 
-fn itoa(comptime value: anytype) [:0]const u8 {
-    comptime var s: [:0]const u8 = "";
-    comptime var n = value;
-
-    if (n == 0) {
-        s = s ++ .{'0'};
-    } else {
-        while (n != 0) {
-            s = s ++ .{'0' + (n % 10)};
-            n = n / 10;
-        }
-    }
-
-    return s;
-}
-
 pub fn Arhetypes(comptime templates: []const Template) type {
     var newFields: [templates.len]std.builtin.Type.StructField = undefined;
 
     inline for (templates, 0..) |template, i| {
         newFields[i] = std.builtin.Type.StructField{
-            .name = itoa(i),
+            .name = helper.itoa(i),
             .type = Archetype(template),
             .default_value_ptr = null,
             .is_comptime = false,
@@ -243,7 +227,8 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn getIterator(self: *Self, comptime component: type, comptime tags: type, comptime exclude: Template) ?Iterator(component) {
             comptime {
-                if (@sizeOf(component) == 0) @compileError("Can't iterate over componets that are zero sized.");
+                // FIXME:: Add a check that there is no crossover with include and exclude
+                if (@sizeOf(component) == 0) @compileError("Tag was given instead of a component.");
                 const maxSize = size: {
                     var size: usize = 0;
                     for (templates) |template| {
@@ -278,21 +263,63 @@ pub fn Ecs(comptime templates: []const Template) type {
             return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
 
-        // pub fn getTupleIterator(self: *Self, comptime include: type, comptime exclude: type) void {
-        //     comptime {
-        //         const maxSize = size: {
-        //             var size: usize = 0;
-        //             for (archetypesInfo.fields) |field| {
-        //                 if (isArchetypeMatch(field.type, include, exclude)) size += 1;
-        //             }
-        //
-        //             break :size size;
-        //         };
-        //
-        //         if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-        //     }
-        //
-        //     comptime const noZST = helper.removeZST(include);
-        // }
+        fn TupleOfArrayLists(comptime T: type) type {
+            const tuple = helper.getTuple(T);
+            var new_fields: [tuple.fields.len]std.builtin.Type.StructField = undefined;
+            inline for (tuple.fields, 0..) |field, i| {
+                new_fields[i] = std.builtin.Type.StructField{
+                    .name = helper.itoa(i),
+                    .type = std.ArrayListUnmanaged(field.type),
+                    .default_value_ptr = null,
+                    .is_comptime = false,
+                    .alignment = @alignOf(std.ArrayListUnmanaged(field.type)),
+                };
+            }
+
+            return @Type(.{
+                .@"struct" = .{
+                    .layout = .auto,
+                    .fields = &new_fields,
+                    .decls = &.{},
+                    .is_tuple = true,
+                },
+            });
+        }
+
+        pub fn getTupleIterator(self: *Self, comptime template: Template, comptime excludeTemplate: Template) void {
+            comptime {
+                // FIXME:: Add a check that there is no crossover with include and exclude
+                helper.compileErrorIfZSTInStruct(template.components);
+
+                const maxSize = size: {
+                    var size: usize = 0;
+                    for (templates) |temp| {
+                        if (isArchetypeMatch(temp, template, excludeTemplate)) size += 1;
+                    }
+
+                    break :size size;
+                };
+
+                if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+            }
+
+            const tupleOfArrayList: TupleOfArrayLists(template.components) = undefined;
+            // errdefer componentArrays.deinit(self.allocator);
+            // errdefer entitys.deinit(self.allocator);
+            //
+            // inline for (templates, 0..) |template, j| {
+            //     if (comptime isArchetypeMatch(template, .{ .components = struct { component }, .tags = tags }, exclude)) {
+            //         const array = self.archetypes[j].getComponentArray(component);
+            //         if (array.len > 0) {
+            //             componentArrays.append(self.allocator, array) catch unreachable;
+            //             entitys.append(self.allocator, self.archetypes[j].getEntitys()) catch unreachable;
+            //         }
+            //     }
+            // }
+            //
+            // if (componentArrays.items.len == 0) {
+            //     return null;
+            // }
+        }
     };
 }
