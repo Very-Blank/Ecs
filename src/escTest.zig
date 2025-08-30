@@ -26,27 +26,24 @@ pub const Tag = struct {};
 pub const Tag2 = struct {};
 
 test "Creating a new entity" {
-    // var ecs: Ecs(&[_]Template{
-    //     .{ .components = struct { Position, Collider }, .tags = struct { Tag } },
-    //     .{ .components = struct { Position }, .tags = EmptyTags },
-    // }) = .init(std.testing.allocator);
-    _ = Ecs(&[_]Template{
+    var ecs: Ecs(&[_]Template{
         .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
         .{ .components = &[_]type{Position}, .tags = null },
-    });
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
 
-    // defer ecs.deinit();
-    //
-    // for (0..100) |_| {
-    //     _ = ecs.createEntity(
-    //         .{ .components = struct { Position, Collider }, .tags = struct { Tag } },
-    //         .{ Position{ .x = 5, .y = 5 }, Collider{ .x = 5, .y = 5 } },
-    //     );
-    //     _ = ecs.createEntity(
-    //         .{ .components = struct { Position }, .tags = EmptyTags },
-    //         .{Position{ .x = 1, .y = 1 }},
-    //     );
-    // }
+    defer ecs.deinit();
+
+    for (0..100) |_| {
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} },
+            .{ Collider{ .x = 5, .y = 5 }, Position{ .x = 5, .y = 5 } },
+        );
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{Position}, .tags = null },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+    }
 }
 
 // test "Iterating over a component" {

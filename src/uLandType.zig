@@ -25,7 +25,7 @@ pub const ULandType = struct {
         return @intFromPtr(self.type);
     }
 
-    pub inline fn eql(self: *ULandType, other: ULandType) bool {
+    pub inline fn eql(self: *const ULandType, other: ULandType) bool {
         return self.type == other.type;
     }
 };

@@ -32,27 +32,18 @@ pub const RowType = enum(u32) {
     }
 };
 
-pub fn Archetype(comptime template: Template) type {
-    const componentsInfo = info: {
-        const componentsInfo = compStruct.getTuple(template.components);
-
-        inline for (componentsInfo.fields) |field| {
-            if (@sizeOf(field.type) == 0) {
-                @compileError("Component was a ZST, was given component " ++ @typeName(field.type) ++ ".");
-            }
-        }
-
-        break :info componentsInfo;
-    };
-
-    inline for (compStruct.getTupleAllowEmpty(template.tags).fields) |field| {
-        if (@sizeOf(field.type) != 0) {
-            @compileError("Tags wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
-        }
-    }
-
+pub fn Archetype(
+    comptime template: Template,
+    componentCount: usize,
+    comptime ComponentBitset: std.bit_set.StaticBitSet(componentCount),
+    comptime tagCount: usize,
+    comptime TagBitset: std.bit_set.StaticBitSet(tagCount),
+) type {
     return struct {
         comptime template: Template = template,
+        comptime componentBitset: std.bit_set.StaticBitSet(componentCount) = ComponentBitset,
+        comptime tagBitset: std.bit_set.StaticBitSet(tagCount) = TagBitset,
+
         container: TupleOfArrayLists(template.components),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
@@ -63,7 +54,7 @@ pub fn Archetype(comptime template: Template) type {
         pub const init: Self = .{
             .container = init: {
                 var container: TupleOfArrayLists(template.components) = undefined;
-                for (0..componentsInfo.fields.len) |i| {
+                for (0..template.components.len) |i| {
                     container[i] = .empty;
                 }
 
@@ -75,15 +66,15 @@ pub fn Archetype(comptime template: Template) type {
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            inline for (componentsInfo.fields, 0..) |field, i| {
-                if (@hasDecl(field.type, "deinit")) {
-                    switch (@typeInfo(@TypeOf(field.type.deinit))) {
+            inline for (template.components, 0..) |component, i| {
+                if (@hasDecl(component, "deinit")) {
+                    switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |@"fn"| {
                             if (@"fn".params.len == 1) {
                                 const paramType = if (@"fn".params[0].type) |@"type"| @"type" else return;
                                 switch (@typeInfo(paramType)) {
                                     .pointer => |pointer| {
-                                        if (pointer.child == field.type) {
+                                        if (pointer.child == component) {
                                             for (self.container[i].items) |value| {
                                                 value.deinit();
                                             }
@@ -99,7 +90,7 @@ pub fn Archetype(comptime template: Template) type {
 
                                 switch (@typeInfo(paramType1)) {
                                     .pointer => |pointer| {
-                                        if (pointer.child == field.type and paramType2 == std.mem.Allocator) {
+                                        if (pointer.child == component and paramType2 == std.mem.Allocator) {
                                             for (self.container[i].items) |value| {
                                                 value.deinit(allocator);
                                             }
@@ -121,8 +112,8 @@ pub fn Archetype(comptime template: Template) type {
             self.rowToEntityMap.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity: EntityType, components: template.components, allocator: std.mem.Allocator) !void {
-            inline for (0..componentsInfo.fields.len) |i| {
+        pub fn append(self: *Self, entity: EntityType, components: compStruct.TupleOfComponents(template.components), allocator: std.mem.Allocator) !void {
+            inline for (0..template.components.len) |i| {
                 try self.container[i].append(allocator, components[i]);
             }
 
@@ -137,7 +128,7 @@ pub fn Archetype(comptime template: Template) type {
                 unreachable;
             };
 
-            inline for (0..componentsInfo.fields.len) |i| {
+            inline for (0..template.components) |i| {
                 self.container[i].swapRemove(allocator, row.value());
             }
 
@@ -164,8 +155,8 @@ pub fn Archetype(comptime template: Template) type {
         }
 
         pub fn getComponentArray(self: *Self, comptime component: type) []component {
-            inline for (componentsInfo.fields, 0..) |field, i| {
-                if (component == field.type) {
+            inline for (template.components, 0..) |comp, i| {
+                if (component == comp) {
                     return self.container[i].items;
                 }
             }
