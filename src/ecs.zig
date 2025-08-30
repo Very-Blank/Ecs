@@ -2,8 +2,6 @@ const std = @import("std");
 
 const ULandType = @import("uLandType.zig").ULandType;
 
-const Bitset = @import("componentManager.zig").Bitset;
-
 const Archetype = @import("archetype.zig").Archetype;
 const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
@@ -15,8 +13,7 @@ const compStruct = @import("comptimeStruct.zig");
 const TupleOfArrayLists = @import("comptimeStruct.zig").TupleOfArrayLists;
 const TupleOfBuffers = @import("comptimeStruct.zig").TupleOfBuffers;
 
-pub const Template: type = struct { components: type, tags: type };
-pub const EmptyTags: type = struct {};
+pub const Template: type = struct { components: []const type, tags: ?[]const type };
 
 pub const EntityType = enum(u32) {
     _,
@@ -77,6 +74,33 @@ pub fn Arhetypes(comptime templates: []const Template) type {
 
 // FIXME: generation isn't hadeled correctly currently all new entitys are set to zero even if they existed before.
 pub fn Ecs(comptime templates: []const Template) type {
+    comptime var componentTypes: []ULandType = &[_]ULandType{};
+    comptime var tagsTypes: []ULandType = &[_]ULandType{};
+
+    for (templates, 0..) |template, i| {
+        for (template.components, 0..) |component, j| {
+            if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed, Template index: " ++ compStruct.itoa(i) ++ ", component index: " ++ compStruct.itoa(j));
+            const uLandType = ULandType.get(component);
+            for (componentTypes) |existingUlandType| {
+                if (uLandType.type == existingUlandType.type) continue;
+            }
+
+            componentTypes = @constCast(componentTypes ++ .{uLandType});
+        }
+
+        if (template.tags) |tags| {
+            for (tags, 0..) |tag, j| {
+                if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", tag index: " ++ compStruct.itoa(j));
+                const uLandType = ULandType.get(tag);
+                for (tagsTypes) |existingUlandType| {
+                    if (uLandType.type == existingUlandType.type) continue;
+                }
+
+                tagsTypes = @constCast(tagsTypes ++ .{uLandType});
+            }
+        }
+    }
+
     return struct {
         archetypes: Arhetypes(templates),
         entityToArchetypeMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
@@ -86,6 +110,10 @@ pub fn Ecs(comptime templates: []const Template) type {
         allocator: std.mem.Allocator,
 
         const Self = @This();
+        const componentIds: []ULandType = componentTypes;
+        const tagIds: []ULandType = tagsTypes;
+        pub const ComponentBitset = std.bit_set.StaticBitSet(componentTypes.len);
+        pub const TagBitset = std.bit_set.StaticBitSet(tagsTypes.len);
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return .{
@@ -113,6 +141,40 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.entityToArchetypeMap.deinit(self.allocator);
             self.unusedEntitys.deinit(self.allocator);
             self.destroyedEntitys.deinit(self.allocator);
+        }
+
+        pub fn getComponentBitset(comptime components: []const type) ComponentBitset {
+            var bitset: ComponentBitset = .initEmpty();
+            outer: for (components) |component| {
+                const uLandType = ULandType.get(component);
+                for (componentIds, 0..) |existingComp, i| {
+                    if (uLandType.eql(existingComp)) {
+                        bitset.set(i);
+                        continue :outer;
+                    }
+                }
+
+                @compileError("Was given a component " ++ @typeName(component) ++ ", that wasn't known by the ECS.");
+            }
+
+            return bitset;
+        }
+
+        pub fn getTagBitset(comptime tags: []const type) TagBitset {
+            var bitset: TagBitset = .initEmpty();
+            outer: for (tags) |tag| {
+                const uLandType = ULandType.get(tag);
+                for (componentIds, 0..) |existingComp, i| {
+                    if (uLandType.eql(existingComp)) {
+                        bitset.set(i);
+                        continue :outer;
+                    }
+                }
+
+                @compileError("Was given a tag " ++ @typeName(tag) ++ ", that wasn't known by the ECS.");
+            }
+
+            return bitset;
         }
 
         pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
