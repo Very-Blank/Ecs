@@ -97,16 +97,9 @@ test "Iterating over multiple components" {
         );
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, EmptyTags, .{ .components = struct {}, .tags = struct { Tag } }).?;
-    defer iterator.deinit();
+    var tupleIterator: TupleIterator(struct { Position, Collider }) = ecs.getTupleIterator(.{ .components = struct { Position, Collider }, .tags = struct { Tag } }, .{ .components = struct {}, .tags = EmptyTags }).?;
+    defer tupleIterator.deinit();
 
-    try std.testing.expect(iterator.buffers.len == 1);
-    try std.testing.expect(iterator.buffers[0].len == 100);
-
-    var iterator2: Iterator(Position) = ecs.getIterator(Position, EmptyTags, .{ .components = struct {}, .tags = EmptyTags }).?;
-    defer iterator2.deinit();
-
-    try std.testing.expect(iterator2.buffers.len == 2);
-    try std.testing.expect(iterator2.buffers[0].len == 100);
-    try std.testing.expect(iterator2.buffers[1].len == 100);
+    try std.testing.expect(tupleIterator.buffers.len == 1);
+    try std.testing.expect(tupleIterator.buffers[0].len == 100);
 }

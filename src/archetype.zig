@@ -5,7 +5,8 @@ const EntityType = @import("ecs.zig").EntityType;
 const Template = @import("ecs.zig").Template;
 const Allocator = std.mem.Allocator;
 
-const helper = @import("helper.zig");
+const compStruct = @import("comptimeStruct.zig");
+const TupleOfArrayLists = @import("comptimeStruct.zig").TupleOfArrayLists;
 
 pub const ArchetypeType = enum(u32) {
     _,
@@ -31,38 +32,9 @@ pub const RowType = enum(u32) {
     }
 };
 
-pub fn Container(comptime T: type) type {
-    const @"struct": std.builtin.Type.Struct = helper.getTuple(T);
-    var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = init: {
-        var fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
-        for (@"struct".fields, 0..) |field, i| {
-            if (@sizeOf(field.type) > 0) {
-                fields[i] = std.builtin.Type.StructField{
-                    .name = field.name,
-                    .type = std.ArrayListUnmanaged(field.type),
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(std.ArrayListUnmanaged(field.type)),
-                };
-            }
-        }
-
-        break :init fields;
-    };
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &new_fields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
-    });
-}
-
 pub fn Archetype(comptime template: Template) type {
     const componentsInfo = info: {
-        const componentsInfo = helper.getTuple(template.components);
+        const componentsInfo = compStruct.getTuple(template.components);
 
         inline for (componentsInfo.fields) |field| {
             if (@sizeOf(field.type) == 0) {
@@ -73,7 +45,7 @@ pub fn Archetype(comptime template: Template) type {
         break :info componentsInfo;
     };
 
-    inline for (helper.getTupleAllowEmpty(template.tags).fields) |field| {
+    inline for (compStruct.getTupleAllowEmpty(template.tags).fields) |field| {
         if (@sizeOf(field.type) != 0) {
             @compileError("Tags wasn't a ZST, was given tag " ++ @typeName(field.type) ++ ".");
         }
@@ -81,7 +53,7 @@ pub fn Archetype(comptime template: Template) type {
 
     return struct {
         comptime template: Template = template,
-        container: Container(template.components),
+        container: TupleOfArrayLists(template.components),
         entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
         entitys: u32,
@@ -90,7 +62,7 @@ pub fn Archetype(comptime template: Template) type {
 
         pub const init: Self = .{
             .container = init: {
-                var container: Container(template.components) = undefined;
+                var container: TupleOfArrayLists(template.components) = undefined;
                 for (0..componentsInfo.fields.len) |i| {
                     container[i] = .empty;
                 }

@@ -1,61 +1,8 @@
 const std = @import("std");
-const helper = @import("helper.zig");
+const compStruct = @import("comptimeStruct.zig");
+const TupleOfBuffers = @import("comptimeStruct.zig").TupleOfBuffers;
+const TupleOfComponents = @import("comptimeStruct.zig").TupleOfComponents;
 const EntityType = @import("ecs.zig").EntityType;
-
-pub fn TupleOfBuffers(comptime T: type) type {
-    switch (@typeInfo(T)) {
-        .@"struct" => |@"struct"| {
-            if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
-            var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
-            for (@"struct".fields, 0..) |field, i| {
-                new_fields[i] = std.builtin.Type.StructField{
-                    .name = helper.itoa(i),
-                    .type = [][]field.type,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf([][]field.type),
-                };
-            }
-            return @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &new_fields,
-                    .decls = &.{},
-                    .is_tuple = true,
-                },
-            });
-        },
-        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
-    }
-}
-
-pub fn TupleOfComponents(comptime T: type) type {
-    switch (@typeInfo(T)) {
-        .@"struct" => |@"struct"| {
-            if (!@"struct".is_tuple) @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple.");
-            var new_fields: [@"struct".fields.len]std.builtin.Type.StructField = undefined;
-            for (@"struct".fields, 0..) |field, i| {
-                new_fields[i] = std.builtin.Type.StructField{
-                    .name = &[2:0]u8{ '0' + @as(u8, @intCast(i)), 0 },
-                    .type = *field.type,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(*field.type),
-                };
-            }
-
-            return @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &new_fields,
-                    .decls = &.{},
-                    .is_tuple = true,
-                },
-            });
-        },
-        else => @compileError("Unexpected type, was given " ++ @typeName(T) ++ ". Expected tuple."),
-    }
-}
 
 pub fn TupleIterator(comptime T: type) type {
     switch (@typeInfo(T)) {

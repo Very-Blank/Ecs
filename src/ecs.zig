@@ -9,8 +9,11 @@ const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
 
 const Iterator = @import("iterator.zig").Iterator;
+const TupleIterator = @import("iterator.zig").TupleIterator;
 
-const helper = @import("helper.zig");
+const compStruct = @import("comptimeStruct.zig");
+const TupleOfArrayLists = @import("comptimeStruct.zig").TupleOfArrayLists;
+const TupleOfBuffers = @import("comptimeStruct.zig").TupleOfBuffers;
 
 pub const Template: type = struct { components: type, tags: type };
 pub const EmptyTags: type = struct {};
@@ -54,7 +57,7 @@ pub fn Arhetypes(comptime templates: []const Template) type {
 
     inline for (templates, 0..) |template, i| {
         newFields[i] = std.builtin.Type.StructField{
-            .name = helper.itoa(i),
+            .name = compStruct.itoa(i),
             .type = Archetype(template),
             .default_value_ptr = null,
             .is_comptime = false,
@@ -166,14 +169,14 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn isArchetypeMatch(comptime template: Template, comptime includeTemplate: Template, comptime excludeTemplate: Template) bool {
-            const componentsTuple = helper.getTuple(template.components);
-            const tagsTuple = helper.getTupleAllowEmpty(template.tags);
+            const componentsTuple = compStruct.getTuple(template.components);
+            const tagsTuple = compStruct.getTupleAllowEmpty(template.tags);
 
-            const iComponentsTuple = helper.getTuple(includeTemplate.components);
-            const iTagsTuple = helper.getTupleAllowEmpty(includeTemplate.tags);
+            const iComponentsTuple = compStruct.getTuple(includeTemplate.components);
+            const iTagsTuple = compStruct.getTupleAllowEmpty(includeTemplate.tags);
 
-            const eComponentsTuple = helper.getTupleAllowEmpty(excludeTemplate.components);
-            const etagsTuple = helper.getTupleAllowEmpty(excludeTemplate.tags);
+            const eComponentsTuple = compStruct.getTupleAllowEmpty(excludeTemplate.components);
+            const etagsTuple = compStruct.getTupleAllowEmpty(excludeTemplate.tags);
 
             outer: inline for (iComponentsTuple.fields) |iField| {
                 inline for (componentsTuple.fields) |cField| {
@@ -242,16 +245,17 @@ pub fn Ecs(comptime templates: []const Template) type {
             }
 
             var componentArrays: std.ArrayListUnmanaged([]component) = .empty;
-            var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
             errdefer componentArrays.deinit(self.allocator);
+
+            var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
             errdefer entitys.deinit(self.allocator);
 
-            inline for (templates, 0..) |template, j| {
+            inline for (templates, 0..) |template, i| {
                 if (comptime isArchetypeMatch(template, .{ .components = struct { component }, .tags = tags }, exclude)) {
-                    const array = self.archetypes[j].getComponentArray(component);
+                    const array = self.archetypes[i].getComponentArray(component);
                     if (array.len > 0) {
                         componentArrays.append(self.allocator, array) catch unreachable;
-                        entitys.append(self.allocator, self.archetypes[j].getEntitys()) catch unreachable;
+                        entitys.append(self.allocator, self.archetypes[i].getEntitys()) catch unreachable;
                     }
                 }
             }
@@ -263,34 +267,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
 
-        fn TupleOfArrayLists(comptime T: type) type {
-            const tuple = helper.getTuple(T);
-            var new_fields: [tuple.fields.len]std.builtin.Type.StructField = undefined;
-            inline for (tuple.fields, 0..) |field, i| {
-                new_fields[i] = std.builtin.Type.StructField{
-                    .name = helper.itoa(i),
-                    .type = std.ArrayListUnmanaged(field.type),
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(std.ArrayListUnmanaged(field.type)),
-                };
-            }
-
-            return @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &new_fields,
-                    .decls = &.{},
-                    .is_tuple = true,
-                },
-            });
-        }
-
-        pub fn getTupleIterator(self: *Self, comptime template: Template, comptime excludeTemplate: Template) void {
+        pub fn getTupleIterator(self: *Self, comptime template: Template, comptime excludeTemplate: Template) ?TupleIterator(template.components) {
             comptime {
                 // FIXME:: Add a check that there is no crossover with include and exclude
-                helper.compileErrorIfZSTInStruct(template.components);
-
                 const maxSize = size: {
                     var size: usize = 0;
                     for (templates) |temp| {
@@ -303,23 +282,60 @@ pub fn Ecs(comptime templates: []const Template) type {
                 if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
             }
 
-            const tupleOfArrayList: TupleOfArrayLists(template.components) = undefined;
-            // errdefer componentArrays.deinit(self.allocator);
-            // errdefer entitys.deinit(self.allocator);
-            //
-            // inline for (templates, 0..) |template, j| {
-            //     if (comptime isArchetypeMatch(template, .{ .components = struct { component }, .tags = tags }, exclude)) {
-            //         const array = self.archetypes[j].getComponentArray(component);
-            //         if (array.len > 0) {
-            //             componentArrays.append(self.allocator, array) catch unreachable;
-            //             entitys.append(self.allocator, self.archetypes[j].getEntitys()) catch unreachable;
-            //         }
-            //     }
-            // }
-            //
-            // if (componentArrays.items.len == 0) {
-            //     return null;
-            // }
+            const components = compStruct.getTuple(template.components);
+
+            var tupleOfArrayList: TupleOfArrayLists(template.components) = init: {
+                var tupleOfArrayList: TupleOfArrayLists(template.components) = undefined;
+                inline for (0..components.fields.len) |i| {
+                    tupleOfArrayList[i] = .empty;
+                }
+
+                break :init tupleOfArrayList;
+            };
+
+            errdefer {
+                inline for (0..tupleOfArrayList.len) |i| {
+                    tupleOfArrayList[i].deinit(self.allocator);
+                }
+            }
+
+            var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
+            errdefer entitys.deinit(self.allocator);
+
+            outer: inline for (templates, 0..) |temp, i| {
+                if (comptime isArchetypeMatch(temp, template, excludeTemplate)) {
+                    inline for (components.fields, 0..) |component, j| {
+                        const array = self.archetypes[i].getComponentArray(component.type);
+                        if (array.len > 0) {
+                            tupleOfArrayList[j].append(self.allocator, array) catch unreachable;
+                            if (comptime j == 0) entitys.append(self.allocator, self.archetypes[i].getEntitys()) catch unreachable;
+                        } else {
+                            continue :outer;
+                        }
+                    }
+                }
+            }
+
+            if (tupleOfArrayList[0].items.len == 0) {
+                return null;
+            }
+
+            const tupleOfBuffers: TupleOfBuffers(template.components) = init: {
+                var tupleOfBuffers: TupleOfBuffers(template.components) = undefined;
+                inline for (0..components.fields.len) |i| {
+                    tupleOfBuffers = tupleOfArrayList[i].toOwnedSlice(self.allocator) catch unreachable;
+                }
+
+                break :init tupleOfBuffers;
+            };
+
+            errdefer {
+                inline for (tupleOfBuffers) |buffer| {
+                    self.allocator.free(buffer);
+                }
+            }
+
+            return TupleIterator(template).init(tupleOfBuffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
     };
 }
