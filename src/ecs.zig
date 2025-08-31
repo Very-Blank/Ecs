@@ -97,6 +97,7 @@ pub fn Ecs(comptime templates: []const Template) type {
     comptime var tagsTypes: []ULandType = &[_]ULandType{};
 
     for (templates, 0..) |template, i| {
+        if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ".");
         for (template.components, 0..) |component, j| {
             if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", component index: " ++ compStruct.itoa(j));
             const uLandType = ULandType.get(component);
@@ -108,6 +109,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         if (template.tags) |tags| {
+            if (tags.len == 0) @compileError("Template tags was empty, which is not allowed; rather use null. Template index: " ++ compStruct.itoa(i) ++ ".");
             for (tags, 0..) |tag, j| {
                 if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", tag index: " ++ compStruct.itoa(j));
                 const uLandType = ULandType.get(tag);
@@ -293,76 +295,40 @@ pub fn Ecs(comptime templates: []const Template) type {
             }
         }
 
-        // pub fn getArchetype(self: *Self, comptime template: Template) *Archetype(template) {
-        //     inline for (0..self.archetypes.len) |i| {
-        //         if (template.components == self.archetypes[i].componentsType and self.archetypes[i].tagsType == template.tags) {
-        //             return &self.archetypes[i];
-        //         }
-        //     }
-        //
-        //     @compileError("Supplied template, didn't have a corresponding archetype");
-        // }
-        //
-        // pub fn isArchetypeMatch(comptime template: Template, comptime includeTemplate: Template, comptime excludeTemplate: Template) bool {
-        //     const componentsTuple = compStruct.getTuple(template.components);
-        //     const tagsTuple = compStruct.getTupleAllowEmpty(template.tags);
-        //
-        //     const iComponentsTuple = compStruct.getTuple(includeTemplate.components);
-        //     const iTagsTuple = compStruct.getTupleAllowEmpty(includeTemplate.tags);
-        //
-        //     const eComponentsTuple = compStruct.getTupleAllowEmpty(excludeTemplate.components);
-        //     const etagsTuple = compStruct.getTupleAllowEmpty(excludeTemplate.tags);
-        //
-        //     outer: inline for (iComponentsTuple.fields) |iField| {
-        //         inline for (componentsTuple.fields) |cField| {
-        //             if (iField.type == cField.type) continue :outer;
-        //         }
-        //
-        //         return false;
-        //     }
-        //
-        //     outer: inline for (iTagsTuple.fields) |iField| {
-        //         inline for (tagsTuple.fields) |cField| {
-        //             if (iField.type == cField.type) continue :outer;
-        //         }
-        //
-        //         return false;
-        //     }
-        //
-        //     inline for (eComponentsTuple.fields) |eField| {
-        //         inline for (componentsTuple.fields) |cField| {
-        //             if (eField.type == cField.type) return false;
-        //         }
-        //     }
-        //
-        //     inline for (etagsTuple.fields) |eField| {
-        //         inline for (tagsTuple.fields) |cField| {
-        //             if (eField.type == cField.type) return false;
-        //         }
-        //     }
-        //
-        //     return true;
-        // }
-        //
-        // // fn getInclude(comptime T: type) type {
-        // //     var new_fields: [1]std.builtin.Type.StructField = std.builtin.Type.StructField{
-        // //         .name = "0",
-        // //         .type = []T,
-        // //         .default_value_ptr = null,
-        // //         .is_comptime = false,
-        // //         .alignment = @alignOf([]T),
-        // //     };
-        // //
-        // //     return @Type(.{
-        // //         .@"struct" = .{
-        // //             .layout = .auto,
-        // //             .fields = &new_fields,
-        // //             .decls = &.{},
-        // //             .is_tuple = true,
-        // //         },
-        // //     });
-        // // }
-        //
+        fn getMeantArchetypeTemplate(template: Template) Template {
+            for (templates) |temp| {
+                if (temp.eql(template)) return temp;
+            }
+
+            @compileError("Supplied template didn't have a corresponding archetype.");
+        }
+
+        pub fn getArchetype(self: *Self, comptime template: Template) init: {
+            const mTemplate = getMeantArchetypeTemplate(template);
+            break :init *Archetype(
+                mTemplate,
+                componentIds.len,
+                getComponentBitset(mTemplate.components),
+                tagIds.len,
+                if (mTemplate.tags) |tags| getTagBitset(tags) else TagBitset.initEmpty(),
+            );
+        } {
+            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
+            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
+
+            const archetypeIndex: usize = comptime init: {
+                for (self.archetypes, 0..) |archetype, i| {
+                    if ((archetype.tagBitset.eql(tagBitset) and archetype.componentBitset.eql(componentBitset))) break :init i;
+                }
+
+                @compileError("Supplied template didn't have a corresponding archetype.");
+            };
+
+            return &self.archetypes[archetypeIndex];
+        }
+
+        // NOTE: NEXT
+
         // pub fn getIterator(self: *Self, comptime component: type, comptime tags: type, comptime exclude: Template) ?Iterator(component) {
         //     comptime {
         //         // FIXME:: Add a check that there is no crossover with include and exclude
@@ -401,6 +367,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         //
         //     return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         // }
+
         //
         // pub fn getTupleIterator(self: *Self, comptime template: Template, comptime excludeTemplate: Template) ?TupleIterator(template.components) {
         //     comptime {

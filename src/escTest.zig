@@ -44,6 +44,9 @@ test "Creating a new entity" {
             .{Position{ .x = 1, .y = 1 }},
         );
     }
+
+    const archetype = ecs.getArchetype(.{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} });
+    _ = archetype;
 }
 
 // test "Iterating over a component" {
