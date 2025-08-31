@@ -98,11 +98,11 @@ pub fn Ecs(comptime templates: []const Template) type {
 
     for (templates, 0..) |template, i| {
         if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ".");
-        for (template.components, 0..) |component, j| {
+        outer: for (template.components, 0..) |component, j| {
             if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", component index: " ++ compStruct.itoa(j));
             const uLandType = ULandType.get(component);
             for (componentTypes) |existingUlandType| {
-                if (uLandType.type == existingUlandType.type) continue;
+                if (uLandType.type == existingUlandType.type) continue :outer;
             }
 
             componentTypes = @constCast(componentTypes ++ .{uLandType});
@@ -110,11 +110,11 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         if (template.tags) |tags| {
             if (tags.len == 0) @compileError("Template tags was empty, which is not allowed; rather use null. Template index: " ++ compStruct.itoa(i) ++ ".");
-            for (tags, 0..) |tag, j| {
+            outer: for (tags, 0..) |tag, j| {
                 if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", tag index: " ++ compStruct.itoa(j));
                 const uLandType = ULandType.get(tag);
                 for (tagsTypes) |existingUlandType| {
-                    if (uLandType.type == existingUlandType.type) continue;
+                    if (uLandType.type == existingUlandType.type) continue :outer;
                 }
 
                 tagsTypes = @constCast(tagsTypes ++ .{uLandType});
@@ -129,9 +129,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             for (templates, 0..) |template, i| {
                 const archetype: type = Archetype(
                     template,
-                    componentIds.len,
+                    componentTypes.len,
                     getComponentBitset(template.components),
-                    tagIds.len,
+                    tagsTypes,
                     if (template.tags) |tags| getTagBitset(tags) else TagBitset.initEmpty(),
                 );
 
@@ -156,12 +156,12 @@ pub fn Ecs(comptime templates: []const Template) type {
         entityToArchetypeMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
         unusedEntitys: std.ArrayListUnmanaged(EntityType),
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
+        componentIds: []ULandType,
+        tagIds: []ULandType,
         entityCount: u32,
         allocator: std.mem.Allocator,
 
         const Self = @This();
-        const componentIds: []ULandType = componentTypes;
-        const tagIds: []ULandType = tagsTypes;
         pub const ComponentBitset = std.bit_set.StaticBitSet(componentTypes.len);
         pub const TagBitset = std.bit_set.StaticBitSet(tagsTypes.len);
 
@@ -178,6 +178,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 .entityToArchetypeMap = .empty,
                 .unusedEntitys = .empty,
                 .destroyedEntitys = .empty,
+                .omponentIds = componentTypes,
                 .entityCount = 0,
                 .allocator = allocator,
             };
@@ -197,7 +198,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             var bitset: ComponentBitset = .initEmpty();
             outer: for (components) |component| {
                 const uLandType = ULandType.get(component);
-                for (componentIds, 0..) |existingComp, i| {
+                for (componentTypes, 0..) |existingComp, i| {
                     if (uLandType.eql(existingComp)) {
                         bitset.set(i);
                         continue :outer;
@@ -214,7 +215,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             var bitset: TagBitset = .initEmpty();
             outer: for (tags) |tag| {
                 const uLandType = ULandType.get(tag);
-                for (tagIds, 0..) |existingComp, i| {
+                for (tagsTypes, 0..) |existingComp, i| {
                     if (uLandType.eql(existingComp)) {
                         bitset.set(i);
                         continue :outer;
@@ -307,9 +308,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             const mTemplate = getMeantArchetypeTemplate(template);
             break :init *Archetype(
                 mTemplate,
-                componentIds.len,
+                componentTypes.len,
                 getComponentBitset(mTemplate.components),
-                tagIds.len,
+                tagsTypes.len,
                 if (mTemplate.tags) |tags| getTagBitset(tags) else TagBitset.initEmpty(),
             );
         } {

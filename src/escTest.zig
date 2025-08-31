@@ -7,6 +7,8 @@ const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("iterator.zig").TupleIterator;
 const EntityType = @import("entity.zig").EntityType;
 
+const ULandType = @import("uLandType.zig").ULandType;
+
 pub const Position = struct {
     x: u32,
     y: u32,
@@ -31,6 +33,12 @@ test "Creating a new entity" {
         .{ .components = &[_]type{Position}, .tags = null },
         .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
     }) = .init(std.testing.allocator);
+
+    std.debug.print("{any}\n", .{ecs.omponentIds});
+    std.debug.print("{any}\n", .{ULandType.get(Position)});
+    std.debug.print("{any}\n", .{ULandType.get(Collider)});
+
+    std.debug.print("{any}\n", .{ULandType.get(Position).eql(ULandType.get(Collider))});
 
     defer ecs.deinit();
 
