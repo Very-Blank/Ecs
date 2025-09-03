@@ -179,7 +179,7 @@ pub fn TupleOfBuffers(components: []const type) type {
     });
 }
 
-pub fn TupleOfComponentsPtr(components: []const type) type {
+pub fn TupleOfComponentPtrs(components: []const type) type {
     const newFields: [components.len]std.builtin.Type.StructField = init: {
         var newFields: [components.len]std.builtin.Type.StructField = undefined;
 

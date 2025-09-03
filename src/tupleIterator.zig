@@ -1,6 +1,6 @@
 const std = @import("std");
 const TupleOfBuffers = @import("comptimeStruct.zig").TupleOfBuffers;
-const TupleOfComponents = @import("comptimeStruct.zig").TupleOfComponents;
+const TupleOfComponentPtrs = @import("comptimeStruct.zig").TupleOfComponentPtrs;
 const EntityType = @import("ecs.zig").EntityType;
 
 pub fn TupleIterator(comptime components: []const type) type {
@@ -51,12 +51,12 @@ pub fn TupleIterator(comptime components: []const type) type {
 
         /// Returns the next value in the buffers and whether or not there is next value.
         /// If there is no next value next() will return the last element in the buffers.
-        pub fn next(self: *Self) ?TupleOfComponents(components) {
+        pub fn next(self: *Self) ?TupleOfComponentPtrs(components) {
             if (self.tupleOfBuffers[0].len <= self.currentBuffer) {
                 return null;
             }
 
-            var value: TupleOfComponents(components) = undefined;
+            var value: TupleOfComponentPtrs(components) = undefined;
             inline for (0..components.len) |i| {
                 value[i] = &self.tupleOfBuffers[i][self.currentBuffer][self.currentIndex];
                 self.currentEntity = self.entities[self.currentBuffer][self.currentIndex];

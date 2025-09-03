@@ -51,7 +51,7 @@ test "Creating a new entity" {
     _ = archetype;
 }
 
-test "Destroy an entity" {
+test "Destroing an entity" {
     var ecs: Ecs(&[_]Template{
         .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
         .{ .components = &[_]type{Position}, .tags = null },
@@ -96,7 +96,7 @@ test "Iterating over a component" {
     for (0..100) |_| {
         _ = ecs.createEntity(
             .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-            .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
+            .{ Position{ .x = 1, .y = 1 }, Collider{ .x = 5, .y = 5 } },
         );
         _ = ecs.createEntity(
             .{ .components = &[_]type{Position}, .tags = null },
@@ -116,11 +116,30 @@ test "Iterating over a component" {
     try std.testing.expect(iterator.buffers[1].len == 100);
     try std.testing.expect(iterator.buffers[2].len == 100);
 
+    while (iterator.next()) |position| {
+        try std.testing.expect(position.x == 1);
+        try std.testing.expect(position.y == 1);
+        position.x = 5;
+        position.y = 2;
+    }
+
+    iterator.reset();
+
+    while (iterator.next()) |position| {
+        try std.testing.expect(position.x == 5);
+        try std.testing.expect(position.y == 2);
+    }
+
     var iterator2: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = &[_]type{Tag} }).?;
     defer iterator2.deinit();
 
     try std.testing.expect(iterator2.buffers.len == 1);
     try std.testing.expect(iterator2.buffers[0].len == 100);
+
+    while (iterator2.next()) |position| {
+        try std.testing.expect(position.x == 5);
+        try std.testing.expect(position.y == 2);
+    }
 }
 
 test "Iterating over multiple components" {
@@ -151,9 +170,26 @@ test "Iterating over multiple components" {
         .{ .components = &[_]type{ Position, Collider }, .tags = null },
         .{ .components = &[_]type{}, .tags = null },
     ).?;
+    defer iterator.deinit();
 
     try std.testing.expect(iterator.tupleOfBuffers[0].len == 1);
     try std.testing.expect(iterator.tupleOfBuffers[0][0].len == 100);
 
-    defer iterator.deinit();
+    while (iterator.next()) |components| {
+        try std.testing.expect(components[0].x == 6);
+        try std.testing.expect(components[0].y == 5);
+        components[0].x = 7;
+        components[0].y = 7;
+    }
+
+    var iterator2: TupleIterator(&[_]type{ Position, Collider }) = ecs.getTupleIterator(
+        .{ .components = &[_]type{ Position, Collider }, .tags = null },
+        .{ .components = &[_]type{}, .tags = null },
+    ).?;
+    defer iterator2.deinit();
+
+    while (iterator.next()) |components| {
+        try std.testing.expect(components[0].x == 7);
+        try std.testing.expect(components[0].y == 7);
+    }
 }
