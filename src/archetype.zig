@@ -45,8 +45,8 @@ pub fn Archetype(
         comptime tagBitset: std.bit_set.StaticBitSet(tagCount) = TagBitset,
 
         container: TupleOfArrayLists(template.components),
-        entityToRowMap: std.AutoArrayHashMapUnmanaged(EntityType, RowType),
-        rowToEntityMap: std.AutoArrayHashMapUnmanaged(RowType, EntityType),
+        entityToRowMap: std.AutoHashMapUnmanaged(EntityType, RowType),
+        rowToEntityMap: std.AutoHashMapUnmanaged(RowType, EntityType),
         entitys: u32,
 
         const Self = @This();
@@ -128,8 +128,8 @@ pub fn Archetype(
                 unreachable;
             };
 
-            inline for (0..template.components) |i| {
-                self.container[i].swapRemove(allocator, row.value());
+            inline for (0..template.components.len) |i| {
+                _ = self.container[i].swapRemove(row.value());
             }
 
             if (row.value() == self.entitys - 1 or self.entitys == 1) {
@@ -140,8 +140,8 @@ pub fn Archetype(
                     unreachable;
                 };
 
-                self.entityToRowMap.put(allocator, rowEndEntity, row);
-                self.rowToEntityMap.put(allocator, row, rowEndEntity);
+                try self.entityToRowMap.put(allocator, rowEndEntity, row);
+                try self.rowToEntityMap.put(allocator, row, rowEndEntity);
 
                 std.debug.assert(self.entityToRowMap.remove(entity));
                 std.debug.assert(self.rowToEntityMap.remove(RowType.make(self.entitys - 1)));
@@ -151,7 +151,13 @@ pub fn Archetype(
         }
 
         pub fn getEntitys(self: *Self) []EntityType {
-            return self.entityToRowMap.keys();
+            const Header = struct {
+                values: [*]RowType,
+                keys: [*]EntityType,
+                capacity: @TypeOf(self.entityToRowMap).Size,
+            };
+
+            return @as(*Header, @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.entityToRowMap.metadata.?))) - 1)).keys[0..self.entitys];
         }
 
         pub fn getComponentArray(self: *Self, comptime component: type) []component {

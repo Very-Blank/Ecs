@@ -7,10 +7,10 @@ const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
 
 const Iterator = @import("iterator.zig").Iterator;
-const TupleIterator = @import("iterator.zig").TupleIterator;
+const TupleIterator = @import("tupleIterator.zig").TupleIterator;
 
 const compStruct = @import("comptimeStruct.zig");
-const TupleOfArrayLists = @import("comptimeStruct.zig").TupleOfArrayLists;
+const TupleOfSliceArrayLists = @import("comptimeStruct.zig").TupleOfSliceArrayLists;
 const TupleOfBuffers = @import("comptimeStruct.zig").TupleOfBuffers;
 
 pub const Template: type = struct {
@@ -131,7 +131,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                     template,
                     componentTypes.len,
                     getComponentBitset(template.components),
-                    tagsTypes,
+                    tagsTypes.len,
                     if (template.tags) |tags| getTagBitset(tags) else TagBitset.initEmpty(),
                 );
 
@@ -153,8 +153,8 @@ pub fn Ecs(comptime templates: []const Template) type {
                 },
             });
         },
-        entityToArchetypeMap: std.AutoArrayHashMapUnmanaged(EntityType, ArchetypePointer),
-        unusedEntitys: std.ArrayListUnmanaged(EntityType),
+        entityToArchetypeMap: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
+        unusedEntitys: std.ArrayListUnmanaged(struct { EntityType, GenerationType }),
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
         componentIds: []ULandType,
         tagIds: []ULandType,
@@ -178,7 +178,8 @@ pub fn Ecs(comptime templates: []const Template) type {
                 .entityToArchetypeMap = .empty,
                 .unusedEntitys = .empty,
                 .destroyedEntitys = .empty,
-                .omponentIds = componentTypes,
+                .componentIds = componentTypes,
+                .tagIds = tagsTypes,
                 .entityCount = 0,
                 .allocator = allocator,
             };
@@ -192,6 +193,83 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.entityToArchetypeMap.deinit(self.allocator);
             self.unusedEntitys.deinit(self.allocator);
             self.destroyedEntitys.deinit(self.allocator);
+        }
+
+        pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
+            if (self.entityToArchetypeMap.get(entityPtr.entity)) |archetypePtr| {
+                if (archetypePtr.generation == entityPtr.generation) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        pub fn createEntity(self: *Self, comptime template: Template, components: compStruct.TupleOfComponents(template.components)) EntityPointer {
+            const newEntity: EntityType, const generation: GenerationType = init: {
+                if (self.unusedEntitys.items.len > 0) {
+                    const value = self.unusedEntitys.pop().?;
+                    break :init .{ value[0], GenerationType.make(value[1].value() + 1) };
+                }
+
+                self.entityCount += 1;
+                break :init .{ EntityType.make(self.entityCount - 1), GenerationType.make(0) };
+            };
+
+            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
+            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
+
+            const archetypeIndex: usize = comptime init: {
+                for (self.archetypes, 0..) |archetype, i| {
+                    if ((archetype.tagBitset.eql(tagBitset) and archetype.componentBitset.eql(componentBitset))) break :init i;
+                }
+
+                @compileError("Supplied template didn't have a corresponding archetype.");
+            };
+
+            if (compStruct.TupleOfComponents(template.components) == compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components)) {
+                self.archetypes[archetypeIndex].append(newEntity, components, self.allocator) catch unreachable;
+                self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(archetypeIndex)), .generation = generation }) catch unreachable;
+            } else {
+                // NOTE: User was not kind.
+                const newComponents: compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = init: {
+                    var newComponents: compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = undefined;
+                    outer: inline for (self.archetypes[archetypeIndex].template.components, 0..) |aComponent, j| {
+                        inline for (template.components, 0..) |uComponent, k| {
+                            if (aComponent == uComponent) {
+                                newComponents[j] = components[k];
+                                continue :outer;
+                            }
+                        }
+                    }
+
+                    break :init newComponents;
+                };
+
+                self.archetypes[archetypeIndex].append(newEntity, newComponents, self.allocator) catch unreachable;
+                self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(archetypeIndex)), .generation = generation }) catch unreachable;
+            }
+
+            return EntityPointer{ .entity = newEntity, .generation = generation };
+        }
+
+        pub fn destroyEntity(self: *Self, entity: EntityType) void {
+            self.destroyedEntitys.append(self.allocator, entity) catch unreachable;
+        }
+
+        pub fn clearDestroyedEntitys(self: *Self) void {
+            for (self.destroyedEntitys.items) |entity| {
+                const archetypePtr = self.entityToArchetypeMap.get(entity).?;
+                inline for (0..self.archetypes.len) |i| {
+                    if (i == archetypePtr.archetype.value()) {
+                        self.archetypes[i].remove(entity, self.allocator) catch unreachable;
+                    }
+                }
+
+                std.debug.assert(self.entityToArchetypeMap.remove(entity));
+
+                self.unusedEntitys.append(self.allocator, .{ entity, archetypePtr.generation }) catch unreachable;
+            }
         }
 
         pub fn getComponentBitset(comptime components: []const type) ComponentBitset {
@@ -228,74 +306,6 @@ pub fn Ecs(comptime templates: []const Template) type {
             return bitset;
         }
 
-        pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
-            if (self.entityToArchetypeMap.get(entityPtr.entity)) |archetypePtr| {
-                if (archetypePtr.generation == entityPtr.generation) {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        pub fn createEntity(self: *Self, comptime template: Template, components: compStruct.TupleOfComponents(template.components)) EntityPointer {
-            const newEntity = init: {
-                if (self.unusedEntitys.items.len > 0) {
-                    break :init self.unusedEntitys.pop().?;
-                }
-
-                self.entityCount += 1;
-                break :init EntityType.make(self.entityCount - 1);
-            };
-
-            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
-            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
-
-            const archetypeIndex: usize = comptime init: {
-                for (self.archetypes, 0..) |archetype, i| {
-                    if ((archetype.tagBitset.eql(tagBitset) and archetype.componentBitset.eql(componentBitset))) break :init i;
-                }
-
-                @compileError("Supplied template didn't have a corresponding archetype.");
-            };
-
-            if (compStruct.TupleOfComponents(template.components) == compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components)) {
-                self.archetypes[archetypeIndex].append(newEntity, components, self.allocator) catch unreachable;
-                self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(archetypeIndex)), .generation = .make(0) }) catch unreachable;
-            } else {
-                // NOTE: User was not kind.
-                const newComponents: compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = init: {
-                    var newComponents: compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = undefined;
-                    outer: inline for (self.archetypes[archetypeIndex].template.components, 0..) |aComponent, j| {
-                        inline for (template.components, 0..) |uComponent, k| {
-                            if (aComponent == uComponent) {
-                                newComponents[j] = components[k];
-                                continue :outer;
-                            }
-                        }
-                    }
-
-                    break :init newComponents;
-                };
-
-                self.archetypes[archetypeIndex].append(newEntity, newComponents, self.allocator) catch unreachable;
-                self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(archetypeIndex)), .generation = .make(0) }) catch unreachable;
-            }
-
-            return EntityPointer{ .entity = newEntity, .generation = .make(0) };
-        }
-
-        pub fn destroyEntity(self: *Self, entity: EntityType) void {
-            self.destroyedEntitys.append(self.allocator, entity) catch unreachable;
-        }
-
-        pub fn clearDestroyedEntitys(self: *Self) void {
-            for (self.destroyedEntitys.items) |entity| {
-                const archetypePtr = self.entityToArchetypeMap.get(entity).?;
-                try self.archetypes[archetypePtr.archetype.value()].remove(entity, self.allocator) catch unreachable;
-            }
-        }
-
         fn getMeantArchetypeTemplate(template: Template) Template {
             for (templates) |temp| {
                 if (temp.eql(template)) return temp;
@@ -328,117 +338,119 @@ pub fn Ecs(comptime templates: []const Template) type {
             return &self.archetypes[archetypeIndex];
         }
 
-        // NOTE: NEXT
+        pub fn getIterator(self: *Self, comptime component: type, comptime @"tags?": ?[]const type, comptime exclude: Template) ?Iterator(component) {
+            const componentBitset: ComponentBitset = comptime getComponentBitset(&[_]type{component});
+            const tagBitset: TagBitset = comptime (if (@"tags?") |tags| getTagBitset(tags) else .initEmpty());
 
-        // pub fn getIterator(self: *Self, comptime component: type, comptime tags: type, comptime exclude: Template) ?Iterator(component) {
-        //     comptime {
-        //         // FIXME:: Add a check that there is no crossover with include and exclude
-        //         if (@sizeOf(component) == 0) @compileError("Tag was given instead of a component.");
-        //         const maxSize = size: {
-        //             var size: usize = 0;
-        //             for (templates) |template| {
-        //                 if (isArchetypeMatch(template, .{ .components = struct { component }, .tags = tags }, exclude)) size += 1;
-        //             }
-        //
-        //             break :size size;
-        //         };
-        //
-        //         if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-        //     }
-        //
-        //     var componentArrays: std.ArrayListUnmanaged([]component) = .empty;
-        //     errdefer componentArrays.deinit(self.allocator);
-        //
-        //     var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
-        //     errdefer entitys.deinit(self.allocator);
-        //
-        //     inline for (templates, 0..) |template, i| {
-        //         if (comptime isArchetypeMatch(template, .{ .components = struct { component }, .tags = tags }, exclude)) {
-        //             const array = self.archetypes[i].getComponentArray(component);
-        //             if (array.len > 0) {
-        //                 componentArrays.append(self.allocator, array) catch unreachable;
-        //                 entitys.append(self.allocator, self.archetypes[i].getEntitys()) catch unreachable;
-        //             }
-        //         }
-        //     }
-        //
-        //     if (componentArrays.items.len == 0) {
-        //         return null;
-        //     }
-        //
-        //     return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
-        // }
+            const excludeComponentBitset: ComponentBitset = comptime getComponentBitset(exclude.components);
+            const excludeTagBitset: TagBitset = comptime (if (exclude.tags) |tags| getTagBitset(tags) else .initEmpty());
 
-        //
-        // pub fn getTupleIterator(self: *Self, comptime template: Template, comptime excludeTemplate: Template) ?TupleIterator(template.components) {
-        //     comptime {
-        //         // FIXME:: Add a check that there is no crossover with include and exclude
-        //         const maxSize = size: {
-        //             var size: usize = 0;
-        //             for (templates) |temp| {
-        //                 if (isArchetypeMatch(temp, template, excludeTemplate)) size += 1;
-        //             }
-        //
-        //             break :size size;
-        //         };
-        //
-        //         if (maxSize == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-        //     }
-        //
-        //     const components = compStruct.getTuple(template.components);
-        //
-        //     var tupleOfArrayList: TupleOfArrayLists(template.components) = init: {
-        //         var tupleOfArrayList: TupleOfArrayLists(template.components) = undefined;
-        //         inline for (0..components.fields.len) |i| {
-        //             tupleOfArrayList[i] = .empty;
-        //         }
-        //
-        //         break :init tupleOfArrayList;
-        //     };
-        //
-        //     errdefer {
-        //         inline for (0..tupleOfArrayList.len) |i| {
-        //             tupleOfArrayList[i].deinit(self.allocator);
-        //         }
-        //     }
-        //
-        //     var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
-        //     errdefer entitys.deinit(self.allocator);
-        //
-        //     outer: inline for (templates, 0..) |temp, i| {
-        //         if (comptime isArchetypeMatch(temp, template, excludeTemplate)) {
-        //             inline for (components.fields, 0..) |component, j| {
-        //                 const array = self.archetypes[i].getComponentArray(component.type);
-        //                 if (array.len > 0) {
-        //                     tupleOfArrayList[j].append(self.allocator, array) catch unreachable;
-        //                     if (comptime j == 0) entitys.append(self.allocator, self.archetypes[i].getEntitys()) catch unreachable;
-        //                 } else {
-        //                     continue :outer;
-        //                 }
-        //             }
-        //         }
-        //     }
-        //
-        //     if (tupleOfArrayList[0].items.len == 0) {
-        //         return null;
-        //     }
-        //
-        //     const tupleOfBuffers: TupleOfBuffers(template.components) = init: {
-        //         var tupleOfBuffers: TupleOfBuffers(template.components) = undefined;
-        //         inline for (0..components.fields.len) |i| {
-        //             tupleOfBuffers = tupleOfArrayList[i].toOwnedSlice(self.allocator) catch unreachable;
-        //         }
-        //
-        //         break :init tupleOfBuffers;
-        //     };
-        //
-        //     errdefer {
-        //         inline for (tupleOfBuffers) |buffer| {
-        //             self.allocator.free(buffer);
-        //         }
-        //     }
-        //
-        //     return TupleIterator(template).init(tupleOfBuffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
-        // }
+            const matchinArchetypesIndices: []const usize = comptime init: {
+                var matchinArchetypesIndices: []usize = &[_]usize{};
+                for (self.archetypes, 0..) |archetype, i| {
+                    if (archetype.componentBitset.intersectWith(componentBitset).eql(componentBitset) and
+                        archetype.tagBitset.intersectWith(tagBitset).eql(tagBitset) and
+                        archetype.componentBitset.intersectWith(excludeComponentBitset).eql(ComponentBitset.initEmpty()) and
+                        archetype.tagBitset.intersectWith(excludeTagBitset).eql(TagBitset.initEmpty()))
+                    {
+                        matchinArchetypesIndices = @constCast(matchinArchetypesIndices ++ .{i});
+                    }
+                }
+                if (matchinArchetypesIndices.len == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+                break :init matchinArchetypesIndices;
+            };
+
+            var componentArrays: std.ArrayListUnmanaged([]component) = .empty;
+            errdefer componentArrays.deinit(self.allocator);
+
+            var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
+            errdefer entitys.deinit(self.allocator);
+
+            inline for (matchinArchetypesIndices) |index| {
+                const array = self.archetypes[index].getComponentArray(component);
+                if (array.len > 0) {
+                    componentArrays.append(self.allocator, array) catch unreachable;
+                    entitys.append(self.allocator, self.archetypes[index].getEntitys()) catch unreachable;
+                }
+            }
+
+            if (componentArrays.items.len == 0) {
+                return null;
+            }
+
+            return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+        }
+
+        pub fn getTupleIterator(self: *Self, comptime template: Template, comptime exclude: Template) ?TupleIterator(template.components) {
+            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
+            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
+
+            const excludeComponentBitset: ComponentBitset = comptime getComponentBitset(exclude.components);
+            const excludeTagBitset: TagBitset = comptime (if (exclude.tags) |tags| getTagBitset(tags) else .initEmpty());
+
+            const matchinArchetypesIndices: []const usize = comptime init: {
+                var matchinArchetypesIndices: []usize = &[_]usize{};
+                for (self.archetypes, 0..) |archetype, i| {
+                    if (archetype.componentBitset.intersectWith(componentBitset).eql(componentBitset) and
+                        archetype.tagBitset.intersectWith(tagBitset).eql(tagBitset) and
+                        archetype.componentBitset.intersectWith(excludeComponentBitset).eql(ComponentBitset.initEmpty()) and
+                        archetype.tagBitset.intersectWith(excludeTagBitset).eql(TagBitset.initEmpty()))
+                    {
+                        matchinArchetypesIndices = @constCast(matchinArchetypesIndices ++ .{i});
+                    }
+                }
+                if (matchinArchetypesIndices.len == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+                break :init matchinArchetypesIndices;
+            };
+
+            var tupleOfArrayList: TupleOfSliceArrayLists(template.components) = init: {
+                var tupleOfArrayList: TupleOfSliceArrayLists(template.components) = undefined;
+                inline for (0..template.components.len) |i| {
+                    tupleOfArrayList[i] = .empty;
+                }
+
+                break :init tupleOfArrayList;
+            };
+
+            errdefer {
+                inline for (0..tupleOfArrayList.len) |i| {
+                    tupleOfArrayList[i].deinit(self.allocator);
+                }
+            }
+
+            var entitys: std.ArrayListUnmanaged([]EntityType) = .empty;
+            errdefer entitys.deinit(self.allocator);
+
+            inline for (matchinArchetypesIndices) |index| {
+                inline for (self.archetypes[index].template.components, 0..) |component, j| {
+                    const array = self.archetypes[index].getComponentArray(component);
+                    if (array.len > 0) {
+                        tupleOfArrayList[j].append(self.allocator, array) catch unreachable;
+                        if (comptime j == 0) entitys.append(self.allocator, self.archetypes[index].getEntitys()) catch unreachable;
+                    }
+                }
+            }
+
+            if (tupleOfArrayList[0].items.len == 0) {
+                return null;
+            }
+
+            const tupleOfBuffers: TupleOfBuffers(template.components) = init: {
+                var tupleOfBuffers: TupleOfBuffers(template.components) = undefined;
+                inline for (0..template.components.len) |i| {
+                    tupleOfBuffers[i] = tupleOfArrayList[i].toOwnedSlice(self.allocator) catch unreachable;
+                }
+
+                break :init tupleOfBuffers;
+            };
+
+            errdefer {
+                inline for (tupleOfBuffers) |buffer| {
+                    self.allocator.free(buffer);
+                }
+            }
+
+            return TupleIterator(template.components).init(tupleOfBuffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+        }
     };
 }

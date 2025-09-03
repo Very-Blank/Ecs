@@ -151,19 +151,18 @@ pub fn TupleOfComponents(components: []const type) type {
     });
 }
 
-pub fn TupleOfBuffers(comptime T: type) type {
-    const tuple = getTuple(T);
-    const newFields: [tuple.fields.len]std.builtin.Type.StructField = init: {
-        var newFields: [tuple.fields.len]std.builtin.Type.StructField = undefined;
+pub fn TupleOfBuffers(components: []const type) type {
+    const newFields: [components.len]std.builtin.Type.StructField = init: {
+        var newFields: [components.len]std.builtin.Type.StructField = undefined;
 
-        for (tuple.fields, 0..) |field, i| {
-            if (@sizeOf(field.type) == 0) @compileError("Tuple of buffers can't store a ZST, was given type " ++ @typeName(field.type) ++ ".");
+        for (components, 0..) |component, i| {
+            if (@sizeOf(component) == 0) @compileError("Tuple of buffers can't store a ZST, was given type " ++ @typeName(component) ++ ".");
             newFields[i] = std.builtin.Type.StructField{
                 .name = itoa(i),
-                .type = [][]field.type,
+                .type = [][]component,
                 .default_value_ptr = null,
                 .is_comptime = false,
-                .alignment = @alignOf([][]field.type),
+                .alignment = @alignOf([][]component),
             };
         }
 
@@ -180,18 +179,18 @@ pub fn TupleOfBuffers(comptime T: type) type {
     });
 }
 
-pub fn TupleOfComponentsPtr(comptime T: type) type {
-    const tuple = getTuple(T);
-    const newFields: [tuple.fields.len]std.builtin.Type.StructField = init: {
-        var newFields: [tuple.fields.len]std.builtin.Type.StructField = undefined;
-        for (tuple.fields, 0..) |field, i| {
-            if (@sizeOf(field.type) == 0) @compileError("Tuple of components can't store a ZST, was given type " ++ @typeName(field.type) ++ ".");
+pub fn TupleOfComponentsPtr(components: []const type) type {
+    const newFields: [components.len]std.builtin.Type.StructField = init: {
+        var newFields: [components.len]std.builtin.Type.StructField = undefined;
+
+        for (components, 0..) |component, i| {
+            if (@sizeOf(component) == 0) @compileError("Tuple of buffers can't store a ZST, was given type " ++ @typeName(component) ++ ".");
             newFields[i] = std.builtin.Type.StructField{
                 .name = itoa(i),
-                .type = *field.type,
+                .type = *component,
                 .default_value_ptr = null,
                 .is_comptime = false,
-                .alignment = @alignOf(*field.type),
+                .alignment = @alignOf(*component),
             };
         }
 

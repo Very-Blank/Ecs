@@ -4,7 +4,7 @@ const EmptyTags = @import("ecs.zig").EmptyTags;
 const Template = @import("ecs.zig").Template;
 const Row = @import("archetype.zig").RowType;
 const Iterator = @import("iterator.zig").Iterator;
-const TupleIterator = @import("iterator.zig").TupleIterator;
+const TupleIterator = @import("tupleIterator.zig").TupleIterator;
 const EntityType = @import("entity.zig").EntityType;
 
 const ULandType = @import("uLandType.zig").ULandType;
@@ -34,12 +34,6 @@ test "Creating a new entity" {
         .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
     }) = .init(std.testing.allocator);
 
-    std.debug.print("{any}\n", .{ecs.omponentIds});
-    std.debug.print("{any}\n", .{ULandType.get(Position)});
-    std.debug.print("{any}\n", .{ULandType.get(Collider)});
-
-    std.debug.print("{any}\n", .{ULandType.get(Position).eql(ULandType.get(Collider))});
-
     defer ecs.deinit();
 
     for (0..100) |_| {
@@ -57,61 +51,109 @@ test "Creating a new entity" {
     _ = archetype;
 }
 
-// test "Iterating over a component" {
-//     var ecs: Ecs(&[_]Template{
-//         .{ .components = struct { Position, Collider }, .tags = struct { Tag } },
-//         .{ .components = struct { Position }, .tags = EmptyTags },
-//     }) = .init(std.testing.allocator);
-//
-//     defer ecs.deinit();
-//
-//     for (0..100) |_| {
-//         _ = ecs.createEntity(
-//             .{ .components = struct { Position, Collider }, .tags = struct { Tag } },
-//             .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
-//         );
-//         _ = ecs.createEntity(
-//             .{ .components = struct { Position }, .tags = EmptyTags },
-//             .{Position{ .x = 1, .y = 1 }},
-//         );
-//     }
-//
-//     var iterator: Iterator(Position) = ecs.getIterator(Position, EmptyTags, .{ .components = struct {}, .tags = struct { Tag } }).?;
-//     defer iterator.deinit();
-//
-//     try std.testing.expect(iterator.buffers.len == 1);
-//     try std.testing.expect(iterator.buffers[0].len == 100);
-//
-//     var iterator2: Iterator(Position) = ecs.getIterator(Position, EmptyTags, .{ .components = struct {}, .tags = EmptyTags }).?;
-//     defer iterator2.deinit();
-//
-//     try std.testing.expect(iterator2.buffers.len == 2);
-//     try std.testing.expect(iterator2.buffers[0].len == 100);
-//     try std.testing.expect(iterator2.buffers[1].len == 100);
-// }
-//
-// test "Iterating over multiple components" {
-//     var ecs: Ecs(&[_]Template{
-//         .{ .components = struct { Position, Collider }, .tags = struct { Tag } },
-//         .{ .components = struct { Position }, .tags = EmptyTags },
-//     }) = .init(std.testing.allocator);
-//
-//     defer ecs.deinit();
-//
-//     for (0..100) |_| {
-//         _ = ecs.createEntity(
-//             .{ .components = struct { Position, Collider }, .tags = struct { Tag } },
-//             .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
-//         );
-//         _ = ecs.createEntity(
-//             .{ .components = struct { Position }, .tags = EmptyTags },
-//             .{Position{ .x = 1, .y = 1 }},
-//         );
-//     }
-//
-//     var tupleIterator: TupleIterator(struct { Position, Collider }) = ecs.getTupleIterator(.{ .components = struct { Position, Collider }, .tags = struct { Tag } }, .{ .components = struct {}, .tags = EmptyTags }).?;
-//     defer tupleIterator.deinit();
-//
-//     try std.testing.expect(tupleIterator.buffers.len == 1);
-//     try std.testing.expect(tupleIterator.buffers[0].len == 100);
-// }
+test "Destroy an entity" {
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    const entityPtr = ecs.createEntity(
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{Position{ .x = 1, .y = 1 }},
+    );
+
+    try std.testing.expect(ecs.entityIsValid(entityPtr) == true);
+
+    ecs.destroyEntity(entityPtr.entity);
+
+    ecs.clearDestroyedEntitys();
+
+    try std.testing.expect(ecs.entityIsValid(entityPtr) == false);
+
+    const entityPtr2 = ecs.createEntity(
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{Position{ .x = 1, .y = 1 }},
+    );
+
+    try std.testing.expect(ecs.entityIsValid(entityPtr2) == true);
+
+    try std.testing.expect(entityPtr.entity.value() == entityPtr2.entity.value());
+    try std.testing.expect(entityPtr.generation.value() == entityPtr2.generation.value() - 1);
+}
+
+test "Iterating over a component" {
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    for (0..100) |_| {
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+            .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
+        );
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{Position}, .tags = null },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+    }
+
+    var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = null }).?;
+    defer iterator.deinit();
+
+    try std.testing.expect(iterator.buffers.len == 3);
+    try std.testing.expect(iterator.buffers[0].len == 100);
+    try std.testing.expect(iterator.buffers[1].len == 100);
+    try std.testing.expect(iterator.buffers[2].len == 100);
+
+    var iterator2: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = &[_]type{Tag} }).?;
+    defer iterator2.deinit();
+
+    try std.testing.expect(iterator2.buffers.len == 1);
+    try std.testing.expect(iterator2.buffers[0].len == 100);
+}
+
+test "Iterating over multiple components" {
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    for (0..100) |_| {
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+            .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
+        );
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{Position}, .tags = null },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+    }
+
+    var iterator: TupleIterator(&[_]type{ Position, Collider }) = ecs.getTupleIterator(
+        .{ .components = &[_]type{ Position, Collider }, .tags = null },
+        .{ .components = &[_]type{}, .tags = null },
+    ).?;
+
+    try std.testing.expect(iterator.tupleOfBuffers[0].len == 1);
+    try std.testing.expect(iterator.tupleOfBuffers[0][0].len == 100);
+
+    defer iterator.deinit();
+}
