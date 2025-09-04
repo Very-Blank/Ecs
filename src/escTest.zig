@@ -39,7 +39,7 @@ test "Creating a new entity" {
     for (0..100) |_| {
         _ = ecs.createEntity(
             .{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} },
-            .{ Collider{ .x = 5, .y = 5 }, Position{ .x = 5, .y = 5 } },
+            .{ Collider{ .x = 5, .y = 5 }, Position{ .x = 4, .y = 4 } },
         );
         _ = ecs.createEntity(
             .{ .components = &[_]type{Position}, .tags = null },
@@ -48,7 +48,19 @@ test "Creating a new entity" {
     }
 
     const archetype = ecs.getArchetype(.{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} });
-    _ = archetype;
+
+    try std.testing.expect(archetype.container[0].items.len == 100);
+    try std.testing.expect(archetype.container[1].items.len == 100);
+
+    for (archetype.container[0].items) |item| {
+        try std.testing.expect(item.x == 4);
+        try std.testing.expect(item.y == 4);
+    }
+
+    for (archetype.container[1].items) |item| {
+        try std.testing.expect(item.x == 5);
+        try std.testing.expect(item.y == 5);
+    }
 }
 
 test "Destroing an entity" {

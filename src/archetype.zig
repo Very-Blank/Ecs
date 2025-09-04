@@ -34,7 +34,7 @@ pub const RowType = enum(u32) {
 
 pub fn Archetype(
     comptime template: Template,
-    componentCount: usize,
+    comptime componentCount: usize,
     comptime ComponentBitset: std.bit_set.StaticBitSet(componentCount),
     comptime tagCount: usize,
     comptime TagBitset: std.bit_set.StaticBitSet(tagCount),
