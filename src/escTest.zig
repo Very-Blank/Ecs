@@ -5,7 +5,7 @@ const Template = @import("ecs.zig").Template;
 const Row = @import("archetype.zig").RowType;
 const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("tupleIterator.zig").TupleIterator;
-const EntityType = @import("entity.zig").EntityType;
+const EntityType = @import("ecs.zig").EntityType;
 
 const ULandType = @import("uLandType.zig").ULandType;
 

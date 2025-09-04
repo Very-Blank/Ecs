@@ -74,6 +74,18 @@ pub const GenerationType = enum(u32) {
     }
 };
 
+pub const SingletonType = enum(u32) {
+    _,
+
+    pub inline fn make(@"u32": u32) SingletonType {
+        return @enumFromInt(@"u32");
+    }
+
+    pub inline fn value(@"enum": SingletonType) u32 {
+        return @intFromEnum(@"enum");
+    }
+};
+
 pub const EntityPointer = struct {
     entity: EntityType,
     generation: GenerationType,
@@ -155,6 +167,10 @@ pub fn Ecs(comptime templates: []const Template) type {
         entityToArchetypeMap: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
         unusedEntitys: std.ArrayListUnmanaged(struct { EntityType, GenerationType }),
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
+
+        singletons: std.ArrayListUnmanaged(struct { ComponentBitset, TagBitset }),
+        singletonToEntityMap: std.AutoHashMapUnmanaged(SingletonType, struct { EntityType, GenerationType }),
+
         componentIds: []ULandType,
         tagIds: []ULandType,
         entityCount: u32,
@@ -177,6 +193,8 @@ pub fn Ecs(comptime templates: []const Template) type {
                 .entityToArchetypeMap = .empty,
                 .unusedEntitys = .empty,
                 .destroyedEntitys = .empty,
+                .singletons = .empty,
+                .singletonToEntityMap = .empty,
                 .componentIds = componentTypes,
                 .tagIds = tagsTypes,
                 .entityCount = 0,
@@ -192,6 +210,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.entityToArchetypeMap.deinit(self.allocator);
             self.unusedEntitys.deinit(self.allocator);
             self.destroyedEntitys.deinit(self.allocator);
+
+            self.singletons.deinit(self.allocator);
+            self.singletonToEntityMap.deinit(self.allocator);
         }
 
         pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
