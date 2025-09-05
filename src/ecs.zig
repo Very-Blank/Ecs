@@ -474,5 +474,10 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             return TupleIterator(template.components).init(tupleOfBuffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
+
+        pub fn createSingleton() SingletonType {}
+        pub fn destroySingleton() SingletonType {}
+
+        pub fn getSingletonsEntity() EntityType {}
     };
 }
