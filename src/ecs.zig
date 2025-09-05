@@ -140,7 +140,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
 
         singletons: std.ArrayListUnmanaged(struct { ComponentBitset, TagBitset }),
-        singletonToEntityMap: std.AutoHashMapUnmanaged(SingletonType, struct { EntityType, GenerationType }),
+        singletonToEntityMap: std.AutoHashMapUnmanaged(SingletonType, EntityPointer),
 
         entityCount: u32,
         allocator: std.mem.Allocator,
@@ -481,7 +481,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return TupleIterator(template.components).init(tupleOfBuffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
 
-        pub fn createSingleton(self: Self, requirements: Template) SingletonType {
+        pub fn createSingleton(self: *Self, requirements: Template) SingletonType {
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(requirements.components);
             const tagBitset: TagBitset = comptime (if (requirements.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
             comptime check: {
@@ -497,28 +497,29 @@ pub fn Ecs(comptime templates: []const Template) type {
             }
 
             self.singletons.append(self.allocator, .{ componentBitset, tagBitset }) catch unreachable;
-            return SingletonType.make(self.singletons.items.len - 1);
+            return SingletonType.make(@intCast(self.singletons.items.len - 1));
         }
 
-        pub fn setSingletonsEntity(self: Self, singleton: SingletonType, entityPtr: EntityPointer) !void {
-            if (self.singletons.items.len <= singleton.value()) return error.InvalidSingleton;
-            const componentBitset, const tagBitset = self.singletons.items[SingletonType.value()];
+        pub fn setSingletonsEntity(self: *Self, singleton: SingletonType, entityPtr: EntityPointer) !void {
+            std.debug.assert(singleton.value() < self.singletons.items.len);
+            const componentBitset, const tagBitset = self.singletons.items[singleton.value()];
 
             inline for (self.archetypes) |archetype| {
                 if (@TypeOf(archetype).componentBitset.intersectWith(componentBitset).eql(componentBitset) and
                     @TypeOf(archetype).tagBitset.intersectWith(tagBitset).eql(tagBitset))
                 {
-                    if (archetype.entityToRowMap.get(entityPtr.entity) != null) return error.EntityNotMatchRequirments;
-                    self.singletonToEntityMap.put(self.allocator, singleton, entityPtr);
-                    return;
+                    if (archetype.entityToRowMap.get(entityPtr.entity) != null) {
+                        self.singletonToEntityMap.put(self.allocator, singleton, entityPtr) catch unreachable;
+                        return;
+                    }
                 }
             }
 
-            unreachable;
+            return error.EntityNotMatchRequirments;
         }
 
-        pub fn getSingletonsEntity(self: Self, singleton: SingletonType) ?EntityType {
-            if (self.singletons.items.len <= singleton.value()) return error.InvalidSingleton;
+        pub fn getSingletonsEntity(self: *Self, singleton: SingletonType) ?EntityPointer {
+            std.debug.assert(singleton.value() < self.singletons.items.len);
             return self.singletonToEntityMap.get(singleton);
         }
     };

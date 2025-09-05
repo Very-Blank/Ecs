@@ -247,3 +247,61 @@ test "Iterating over multiple components" {
         try std.testing.expect(components[0].y == 7);
     }
 }
+
+test "Singletons" {
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    const entity1 = ecs.createEntity(
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
+    );
+    const entity2 = ecs.createEntity(
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{Position{ .x = 1, .y = 1 }},
+    );
+    const entity3 = ecs.createEntity(
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{Position{ .x = 1, .y = 1 }},
+    );
+
+    {
+        const singleton = ecs.createSingleton(.{ .components = &[_]type{Position}, .tags = &[_]type{Tag} });
+        try std.testing.expect(ecs.getSingletonsEntity(singleton) == null);
+
+        ecs.setSingletonsEntity(singleton, entity1) catch return error.TestUnexpectedResult;
+        try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity1.entity);
+
+        testScope: {
+            ecs.setSingletonsEntity(singleton, entity2) catch {
+                break :testScope;
+            };
+
+            return error.TestUnexpectedResult;
+        }
+
+        try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity1.entity);
+
+        ecs.setSingletonsEntity(singleton, entity3) catch return error.TestUnexpectedResult;
+        try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity3.entity);
+    }
+
+    {
+        const singleton = ecs.createSingleton(.{ .components = &[_]type{Position}, .tags = null });
+        try std.testing.expect(ecs.getSingletonsEntity(singleton) == null);
+
+        ecs.setSingletonsEntity(singleton, entity1) catch return error.TestUnexpectedResult;
+        try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity1.entity);
+
+        ecs.setSingletonsEntity(singleton, entity2) catch return error.TestUnexpectedResult;
+        try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity2.entity);
+
+        ecs.setSingletonsEntity(singleton, entity3) catch return error.TestUnexpectedResult;
+        try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity3.entity);
+    }
+}
