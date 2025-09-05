@@ -9,7 +9,7 @@ const RowType = @import("archetype.zig").RowType;
 const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("tupleIterator.zig").TupleIterator;
 
-const compStruct = @import("comptimeTypes.zig");
+const compTypes = @import("comptimeTypes.zig");
 const TupleOfSliceArrayLists = @import("comptimeTypes.zig").TupleOfSliceArrayLists;
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
@@ -100,7 +100,7 @@ pub fn Ecs(comptime templates: []const Template) type {
     // FIXME: Remove bad templates maybe?
     for (templates, 1..) |template, i| {
         for (i..templates.len) |j| {
-            if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ compStruct.itoa(i) ++ ", template two index: " ++ compStruct.itoa(j));
+            if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ compTypes.itoa(i) ++ ", template two index: " ++ compTypes.itoa(j));
         }
     }
 
@@ -118,7 +118,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 );
 
                 newFields[i] = std.builtin.Type.StructField{
-                    .name = compStruct.itoa(i),
+                    .name = compTypes.itoa(i),
                     .type = archetype,
                     .default_value_ptr = null,
                     .is_comptime = false,
@@ -150,9 +150,9 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub const componentTypes: []ULandType = init: {
             var iComponentTypes: []ULandType = &[_]ULandType{};
             for (templates, 0..) |template, i| {
-                if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ".");
+                if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ".");
                 outer: for (template.components, 0..) |component, j| {
-                    if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", component index: " ++ compStruct.itoa(j));
+                    if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ", component index: " ++ compTypes.itoa(j));
                     const uLandType = ULandType.get(component);
                     for (iComponentTypes) |existingUlandType| {
                         if (uLandType.type == existingUlandType.type) continue :outer;
@@ -169,9 +169,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             var iTagsTypes: []ULandType = &[_]ULandType{};
             for (templates, 0..) |template, i| {
                 if (template.tags) |tags| {
-                    if (tags.len == 0) @compileError("Template tags was empty, which is not allowed; rather use null. Template index: " ++ compStruct.itoa(i) ++ ".");
+                    if (tags.len == 0) @compileError("Template tags was empty, which is not allowed; rather use null. Template index: " ++ compTypes.itoa(i) ++ ".");
                     outer: for (tags, 0..) |tag, j| {
-                        if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", tag index: " ++ compStruct.itoa(j));
+                        if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ", tag index: " ++ compTypes.itoa(j));
                         const uLandType = ULandType.get(tag);
                         for (iTagsTypes) |existingUlandType| {
                             if (uLandType.type == existingUlandType.type) continue :outer;
@@ -231,7 +231,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return false;
         }
 
-        pub fn createEntity(self: *Self, comptime template: Template, components: compStruct.TupleOfComponents(template.components)) EntityPointer {
+        pub fn createEntity(self: *Self, comptime template: Template, components: compTypes.TupleOfComponents(template.components)) EntityPointer {
             const newEntity: EntityType, const generation: GenerationType = init: {
                 if (self.unusedEntitys.items.len > 0) {
                     const entityPtr = self.unusedEntitys.pop().?;
@@ -253,13 +253,13 @@ pub fn Ecs(comptime templates: []const Template) type {
                 @compileError("Supplied template didn't have a corresponding archetype.");
             };
 
-            if (compStruct.TupleOfComponents(template.components) == compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components)) {
+            if (compTypes.TupleOfComponents(template.components) == compTypes.TupleOfComponents(self.archetypes[archetypeIndex].template.components)) {
                 self.archetypes[archetypeIndex].append(newEntity, components, self.allocator) catch unreachable;
                 self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(archetypeIndex)), .generation = generation }) catch unreachable;
             } else {
                 // NOTE: User was not kind.
-                const newComponents: compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = init: {
-                    var newComponents: compStruct.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = undefined;
+                const newComponents: compTypes.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = init: {
+                    var newComponents: compTypes.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = undefined;
                     outer: inline for (self.archetypes[archetypeIndex].template.components, 0..) |aComponent, j| {
                         inline for (template.components, 0..) |uComponent, k| {
                             if (aComponent == uComponent) {
