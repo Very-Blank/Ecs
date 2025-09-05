@@ -5,7 +5,7 @@ const Template = @import("ecs.zig").Template;
 const Row = @import("archetype.zig").RowType;
 const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("tupleIterator.zig").TupleIterator;
-const EntityType = @import("entity.zig").EntityType;
+const EntityType = @import("ecs.zig").EntityType;
 
 const ULandType = @import("uLandType.zig").ULandType;
 
@@ -26,6 +26,46 @@ pub const Collider = struct {
 
 pub const Tag = struct {};
 pub const Tag2 = struct {};
+
+test "Getting a bitset" {
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    const EcsType: type = @TypeOf(ecs);
+
+    {
+        var expected = EcsType.ComponentBitset.initEmpty();
+        expected.set(0);
+        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&[_]type{Position});
+        try std.testing.expect(expected.eql(componentBitset));
+    }
+
+    {
+        var expected = EcsType.ComponentBitset.initEmpty();
+        expected.set(0);
+        expected.set(1);
+        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&[_]type{ Position, Collider });
+        try std.testing.expect(expected.eql(componentBitset));
+    }
+
+    {
+        var expected = EcsType.ComponentBitset.initEmpty();
+        expected.set(1);
+        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&[_]type{Collider});
+        try std.testing.expect(expected.eql(componentBitset));
+    }
+
+    {
+        var expected = EcsType.TagBitset.initEmpty();
+        expected.set(0);
+        const tagBitset = comptime EcsType.comptimeGetTagBitset(&[_]type{Tag});
+        try std.testing.expect(expected.eql(tagBitset));
+    }
+}
 
 test "Creating a new entity" {
     var ecs: Ecs(&[_]Template{
@@ -82,6 +122,8 @@ test "Destroing an entity" {
     ecs.destroyEntity(entityPtr.entity);
 
     ecs.clearDestroyedEntitys();
+    try std.testing.expect(ecs.destroyedEntitys.items.len == 0);
+    try std.testing.expect(ecs.unusedEntitys.items.len == 1);
 
     try std.testing.expect(ecs.entityIsValid(entityPtr) == false);
 

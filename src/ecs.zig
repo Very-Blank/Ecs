@@ -74,6 +74,18 @@ pub const GenerationType = enum(u32) {
     }
 };
 
+pub const SingletonType = enum(u32) {
+    _,
+
+    pub inline fn make(@"u32": u32) SingletonType {
+        return @enumFromInt(@"u32");
+    }
+
+    pub inline fn value(@"enum": SingletonType) u32 {
+        return @intFromEnum(@"enum");
+    }
+};
+
 pub const EntityPointer = struct {
     entity: EntityType,
     generation: GenerationType,
@@ -84,7 +96,6 @@ pub const ArchetypePointer = struct {
     generation: GenerationType,
 };
 
-// FIXME: generation isn't hadeled correctly currently all new entitys are set to zero even if they existed before.
 pub fn Ecs(comptime templates: []const Template) type {
     // FIXME: Remove bad templates maybe?
     for (templates, 1..) |template, i| {
@@ -130,9 +141,9 @@ pub fn Ecs(comptime templates: []const Template) type {
                 const archetype: type = Archetype(
                     template,
                     componentTypes.len,
-                    getComponentBitset(template.components),
+                    comptimeGetComponentBitset(template.components),
                     tagsTypes.len,
-                    if (template.tags) |tags| getTagBitset(tags) else TagBitset.initEmpty(),
+                    if (template.tags) |tags| comptimeGetTagBitset(tags) else TagBitset.initEmpty(),
                 );
 
                 newFields[i] = std.builtin.Type.StructField{
@@ -156,6 +167,10 @@ pub fn Ecs(comptime templates: []const Template) type {
         entityToArchetypeMap: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
         unusedEntitys: std.ArrayListUnmanaged(EntityPointer),
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
+
+        singletons: std.ArrayListUnmanaged(struct { ComponentBitset, TagBitset }),
+        singletonToEntityMap: std.AutoHashMapUnmanaged(SingletonType, struct { EntityType, GenerationType }),
+
         componentIds: []ULandType,
         tagIds: []ULandType,
         entityCount: u32,
@@ -178,6 +193,8 @@ pub fn Ecs(comptime templates: []const Template) type {
                 .entityToArchetypeMap = .empty,
                 .unusedEntitys = .empty,
                 .destroyedEntitys = .empty,
+                .singletons = .empty,
+                .singletonToEntityMap = .empty,
                 .componentIds = componentTypes,
                 .tagIds = tagsTypes,
                 .entityCount = 0,
@@ -193,6 +210,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.entityToArchetypeMap.deinit(self.allocator);
             self.unusedEntitys.deinit(self.allocator);
             self.destroyedEntitys.deinit(self.allocator);
+
+            self.singletons.deinit(self.allocator);
+            self.singletonToEntityMap.deinit(self.allocator);
         }
 
         pub fn entityIsValid(self: *Self, entityPtr: EntityPointer) bool {
@@ -216,8 +236,8 @@ pub fn Ecs(comptime templates: []const Template) type {
                 break :init .{ EntityType.make(self.entityCount - 1), GenerationType.make(0) };
             };
 
-            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
-            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(template.components);
+            const tagBitset: TagBitset = comptime (if (template.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
             const archetypeIndex: usize = comptime init: {
                 for (self.archetypes, 0..) |archetype, i| {
@@ -270,9 +290,11 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                 self.unusedEntitys.append(self.allocator, EntityPointer{ .entity = entity, .generation = archetypePtr.generation }) catch unreachable;
             }
+
+            self.destroyedEntitys.clearAndFree(self.allocator);
         }
 
-        pub fn getComponentBitset(comptime components: []const type) ComponentBitset {
+        pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
             outer: for (components) |component| {
                 const uLandType = ULandType.get(component);
@@ -289,7 +311,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return bitset;
         }
 
-        pub fn getTagBitset(comptime tags: []const type) TagBitset {
+        pub fn comptimeGetTagBitset(comptime tags: []const type) TagBitset {
             var bitset: TagBitset = .initEmpty();
             outer: for (tags) |tag| {
                 const uLandType = ULandType.get(tag);
@@ -319,13 +341,13 @@ pub fn Ecs(comptime templates: []const Template) type {
             break :init *Archetype(
                 mTemplate,
                 componentTypes.len,
-                getComponentBitset(mTemplate.components),
+                comptimeGetComponentBitset(mTemplate.components),
                 tagsTypes.len,
-                if (mTemplate.tags) |tags| getTagBitset(tags) else TagBitset.initEmpty(),
+                if (mTemplate.tags) |tags| comptimeGetTagBitset(tags) else TagBitset.initEmpty(),
             );
         } {
-            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
-            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(template.components);
+            const tagBitset: TagBitset = comptime (if (template.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
             const archetypeIndex: usize = comptime init: {
                 for (self.archetypes, 0..) |archetype, i| {
@@ -339,11 +361,11 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn getIterator(self: *Self, comptime component: type, comptime @"tags?": ?[]const type, comptime exclude: Template) ?Iterator(component) {
-            const componentBitset: ComponentBitset = comptime getComponentBitset(&[_]type{component});
-            const tagBitset: TagBitset = comptime (if (@"tags?") |tags| getTagBitset(tags) else .initEmpty());
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&[_]type{component});
+            const tagBitset: TagBitset = comptime (if (@"tags?") |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
-            const excludeComponentBitset: ComponentBitset = comptime getComponentBitset(exclude.components);
-            const excludeTagBitset: TagBitset = comptime (if (exclude.tags) |tags| getTagBitset(tags) else .initEmpty());
+            const excludeComponentBitset: ComponentBitset = comptime comptimeGetComponentBitset(exclude.components);
+            const excludeTagBitset: TagBitset = comptime (if (exclude.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
             const matchinArchetypesIndices: []const usize = comptime init: {
                 var matchinArchetypesIndices: []usize = &[_]usize{};
@@ -382,11 +404,11 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn getTupleIterator(self: *Self, comptime template: Template, comptime exclude: Template) ?TupleIterator(template.components) {
-            const componentBitset: ComponentBitset = comptime getComponentBitset(template.components);
-            const tagBitset: TagBitset = comptime (if (template.tags) |tags| getTagBitset(tags) else .initEmpty());
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(template.components);
+            const tagBitset: TagBitset = comptime (if (template.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
-            const excludeComponentBitset: ComponentBitset = comptime getComponentBitset(exclude.components);
-            const excludeTagBitset: TagBitset = comptime (if (exclude.tags) |tags| getTagBitset(tags) else .initEmpty());
+            const excludeComponentBitset: ComponentBitset = comptime comptimeGetComponentBitset(exclude.components);
+            const excludeTagBitset: TagBitset = comptime (if (exclude.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
             const matchinArchetypesIndices: []const usize = comptime init: {
                 var matchinArchetypesIndices: []usize = &[_]usize{};
