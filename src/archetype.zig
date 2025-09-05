@@ -1,12 +1,11 @@
 const std = @import("std");
 
-const Bitset = @import("componentManager.zig").Bitset;
 const EntityType = @import("ecs.zig").EntityType;
 const Template = @import("ecs.zig").Template;
 const Allocator = std.mem.Allocator;
 
-const compStruct = @import("comptimeStruct.zig");
-const TupleOfArrayLists = @import("comptimeStruct.zig").TupleOfArrayLists;
+const compTypes = @import("comptimeTypes.zig");
+const TupleOfArrayLists = @import("comptimeTypes.zig").TupleOfArrayLists;
 
 pub const ArchetypeType = enum(u32) {
     _,
@@ -112,7 +111,7 @@ pub fn Archetype(
             self.rowToEntityMap.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity: EntityType, components: compStruct.TupleOfComponents(template.components), allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity: EntityType, components: compTypes.TupleOfComponents(template.components), allocator: std.mem.Allocator) !void {
             inline for (0..template.components.len) |i| {
                 try self.container[i].append(allocator, components[i]);
             }

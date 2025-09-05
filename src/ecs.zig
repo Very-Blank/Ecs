@@ -9,9 +9,9 @@ const RowType = @import("archetype.zig").RowType;
 const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("tupleIterator.zig").TupleIterator;
 
-const compStruct = @import("comptimeStruct.zig");
-const TupleOfSliceArrayLists = @import("comptimeStruct.zig").TupleOfSliceArrayLists;
-const TupleOfBuffers = @import("comptimeStruct.zig").TupleOfBuffers;
+const compStruct = @import("comptimeTypes.zig");
+const TupleOfSliceArrayLists = @import("comptimeTypes.zig").TupleOfSliceArrayLists;
+const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
 pub const Template: type = struct {
     components: []const type,
