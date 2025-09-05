@@ -154,7 +154,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             });
         },
         entityToArchetypeMap: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
-        unusedEntitys: std.ArrayListUnmanaged(struct { EntityType, GenerationType }),
+        unusedEntitys: std.ArrayListUnmanaged(EntityPointer),
         destroyedEntitys: std.ArrayListUnmanaged(EntityType),
         componentIds: []ULandType,
         tagIds: []ULandType,
@@ -208,8 +208,8 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn createEntity(self: *Self, comptime template: Template, components: compStruct.TupleOfComponents(template.components)) EntityPointer {
             const newEntity: EntityType, const generation: GenerationType = init: {
                 if (self.unusedEntitys.items.len > 0) {
-                    const value = self.unusedEntitys.pop().?;
-                    break :init .{ value[0], GenerationType.make(value[1].value() + 1) };
+                    const entityPtr = self.unusedEntitys.pop().?;
+                    break :init .{ entityPtr.entity, GenerationType.make(entityPtr.generation.value() + 1) };
                 }
 
                 self.entityCount += 1;
@@ -268,7 +268,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                 std.debug.assert(self.entityToArchetypeMap.remove(entity));
 
-                self.unusedEntitys.append(self.allocator, .{ entity, archetypePtr.generation }) catch unreachable;
+                self.unusedEntitys.append(self.allocator, EntityPointer{ .entity = entity, .generation = archetypePtr.generation }) catch unreachable;
             }
         }
 
