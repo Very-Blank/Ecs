@@ -104,35 +104,6 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
     }
 
-    comptime var componentTypes: []ULandType = &[_]ULandType{};
-    comptime var tagsTypes: []ULandType = &[_]ULandType{};
-
-    for (templates, 0..) |template, i| {
-        if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ".");
-        outer: for (template.components, 0..) |component, j| {
-            if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", component index: " ++ compStruct.itoa(j));
-            const uLandType = ULandType.get(component);
-            for (componentTypes) |existingUlandType| {
-                if (uLandType.type == existingUlandType.type) continue :outer;
-            }
-
-            componentTypes = @constCast(componentTypes ++ .{uLandType});
-        }
-
-        if (template.tags) |tags| {
-            if (tags.len == 0) @compileError("Template tags was empty, which is not allowed; rather use null. Template index: " ++ compStruct.itoa(i) ++ ".");
-            outer: for (tags, 0..) |tag, j| {
-                if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", tag index: " ++ compStruct.itoa(j));
-                const uLandType = ULandType.get(tag);
-                for (tagsTypes) |existingUlandType| {
-                    if (uLandType.type == existingUlandType.type) continue :outer;
-                }
-
-                tagsTypes = @constCast(tagsTypes ++ .{uLandType});
-            }
-        }
-    }
-
     return struct {
         archetypes: init: {
             var newFields: [templates.len]std.builtin.Type.StructField = undefined;
@@ -171,12 +142,49 @@ pub fn Ecs(comptime templates: []const Template) type {
         singletons: std.ArrayListUnmanaged(struct { ComponentBitset, TagBitset }),
         singletonToEntityMap: std.AutoHashMapUnmanaged(SingletonType, struct { EntityType, GenerationType }),
 
-        componentIds: []ULandType,
-        tagIds: []ULandType,
         entityCount: u32,
         allocator: std.mem.Allocator,
 
         const Self = @This();
+
+        pub const componentTypes: []ULandType = init: {
+            var iComponentTypes: []ULandType = &[_]ULandType{};
+            for (templates, 0..) |template, i| {
+                if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ".");
+                outer: for (template.components, 0..) |component, j| {
+                    if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", component index: " ++ compStruct.itoa(j));
+                    const uLandType = ULandType.get(component);
+                    for (iComponentTypes) |existingUlandType| {
+                        if (uLandType.type == existingUlandType.type) continue :outer;
+                    }
+
+                    iComponentTypes = @constCast(iComponentTypes ++ .{uLandType});
+                }
+            }
+
+            break :init iComponentTypes;
+        };
+
+        pub const tagsTypes: []ULandType = init: {
+            var iTagsTypes: []ULandType = &[_]ULandType{};
+            for (templates, 0..) |template, i| {
+                if (template.tags) |tags| {
+                    if (tags.len == 0) @compileError("Template tags was empty, which is not allowed; rather use null. Template index: " ++ compStruct.itoa(i) ++ ".");
+                    outer: for (tags, 0..) |tag, j| {
+                        if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ compStruct.itoa(i) ++ ", tag index: " ++ compStruct.itoa(j));
+                        const uLandType = ULandType.get(tag);
+                        for (iTagsTypes) |existingUlandType| {
+                            if (uLandType.type == existingUlandType.type) continue :outer;
+                        }
+
+                        iTagsTypes = @constCast(iTagsTypes ++ .{uLandType});
+                    }
+                }
+            }
+
+            break :init iTagsTypes;
+        };
+
         pub const ComponentBitset = std.bit_set.StaticBitSet(componentTypes.len);
         pub const TagBitset = std.bit_set.StaticBitSet(tagsTypes.len);
 
@@ -195,8 +203,6 @@ pub fn Ecs(comptime templates: []const Template) type {
                 .destroyedEntitys = .empty,
                 .singletons = .empty,
                 .singletonToEntityMap = .empty,
-                .componentIds = componentTypes,
-                .tagIds = tagsTypes,
                 .entityCount = 0,
                 .allocator = allocator,
             };
@@ -241,7 +247,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             const archetypeIndex: usize = comptime init: {
                 for (self.archetypes, 0..) |archetype, i| {
-                    if ((archetype.tagBitset.eql(tagBitset) and archetype.componentBitset.eql(componentBitset))) break :init i;
+                    if ((@TypeOf(archetype).tagBitset.eql(tagBitset) and @TypeOf(archetype).componentBitset.eql(componentBitset))) break :init i;
                 }
 
                 @compileError("Supplied template didn't have a corresponding archetype.");
@@ -351,7 +357,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             const archetypeIndex: usize = comptime init: {
                 for (self.archetypes, 0..) |archetype, i| {
-                    if ((archetype.tagBitset.eql(tagBitset) and archetype.componentBitset.eql(componentBitset))) break :init i;
+                    if ((@TypeOf(archetype).tagBitset.eql(tagBitset) and @TypeOf(archetype).componentBitset.eql(componentBitset))) break :init i;
                 }
 
                 @compileError("Supplied template didn't have a corresponding archetype.");
@@ -370,10 +376,10 @@ pub fn Ecs(comptime templates: []const Template) type {
             const matchinArchetypesIndices: []const usize = comptime init: {
                 var matchinArchetypesIndices: []usize = &[_]usize{};
                 for (self.archetypes, 0..) |archetype, i| {
-                    if (archetype.componentBitset.intersectWith(componentBitset).eql(componentBitset) and
-                        archetype.tagBitset.intersectWith(tagBitset).eql(tagBitset) and
-                        archetype.componentBitset.intersectWith(excludeComponentBitset).eql(ComponentBitset.initEmpty()) and
-                        archetype.tagBitset.intersectWith(excludeTagBitset).eql(TagBitset.initEmpty()))
+                    if (@TypeOf(archetype).componentBitset.intersectWith(componentBitset).eql(componentBitset) and
+                        @TypeOf(archetype).tagBitset.intersectWith(tagBitset).eql(tagBitset) and
+                        @TypeOf(archetype).componentBitset.intersectWith(excludeComponentBitset).eql(ComponentBitset.initEmpty()) and
+                        @TypeOf(archetype).tagBitset.intersectWith(excludeTagBitset).eql(TagBitset.initEmpty()))
                     {
                         matchinArchetypesIndices = @constCast(matchinArchetypesIndices ++ .{i});
                     }
@@ -413,10 +419,10 @@ pub fn Ecs(comptime templates: []const Template) type {
             const matchinArchetypesIndices: []const usize = comptime init: {
                 var matchinArchetypesIndices: []usize = &[_]usize{};
                 for (self.archetypes, 0..) |archetype, i| {
-                    if (archetype.componentBitset.intersectWith(componentBitset).eql(componentBitset) and
-                        archetype.tagBitset.intersectWith(tagBitset).eql(tagBitset) and
-                        archetype.componentBitset.intersectWith(excludeComponentBitset).eql(ComponentBitset.initEmpty()) and
-                        archetype.tagBitset.intersectWith(excludeTagBitset).eql(TagBitset.initEmpty()))
+                    if (@TypeOf(archetype).componentBitset.intersectWith(componentBitset).eql(componentBitset) and
+                        @TypeOf(archetype).tagBitset.intersectWith(tagBitset).eql(tagBitset) and
+                        @TypeOf(archetype).componentBitset.intersectWith(excludeComponentBitset).eql(ComponentBitset.initEmpty()) and
+                        @TypeOf(archetype).tagBitset.intersectWith(excludeTagBitset).eql(TagBitset.initEmpty()))
                     {
                         matchinArchetypesIndices = @constCast(matchinArchetypesIndices ++ .{i});
                     }
@@ -475,9 +481,45 @@ pub fn Ecs(comptime templates: []const Template) type {
             return TupleIterator(template.components).init(tupleOfBuffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
 
-        pub fn createSingleton() SingletonType {}
-        pub fn destroySingleton() SingletonType {}
+        pub fn createSingleton(self: Self, requirements: Template) SingletonType {
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(requirements.components);
+            const tagBitset: TagBitset = comptime (if (requirements.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
+            comptime check: {
+                for (self.archetypes) |archetype| {
+                    if (@TypeOf(archetype).componentBitset.intersectWith(componentBitset).eql(componentBitset) and
+                        @TypeOf(archetype).tagBitset.intersectWith(tagBitset).eql(tagBitset))
+                    {
+                        break :check;
+                    }
+                }
 
-        pub fn getSingletonsEntity() EntityType {}
+                @compileError("No matching archetype");
+            }
+
+            self.singletons.append(self.allocator, .{ componentBitset, tagBitset }) catch unreachable;
+            return SingletonType.make(self.singletons.items.len - 1);
+        }
+
+        pub fn setSingletonsEntity(self: Self, singleton: SingletonType, entityPtr: EntityPointer) !void {
+            if (self.singletons.items.len <= singleton.value()) return error.InvalidSingleton;
+            const componentBitset, const tagBitset = self.singletons.items[SingletonType.value()];
+
+            inline for (self.archetypes) |archetype| {
+                if (@TypeOf(archetype).componentBitset.intersectWith(componentBitset).eql(componentBitset) and
+                    @TypeOf(archetype).tagBitset.intersectWith(tagBitset).eql(tagBitset))
+                {
+                    if (archetype.entityToRowMap.get(entityPtr.entity) != null) return error.EntityNotMatchRequirments;
+                    self.singletonToEntityMap.put(self.allocator, singleton, entityPtr);
+                    return;
+                }
+            }
+
+            unreachable;
+        }
+
+        pub fn getSingletonsEntity(self: Self, singleton: SingletonType) ?EntityType {
+            if (self.singletons.items.len <= singleton.value()) return error.InvalidSingleton;
+            return self.singletonToEntityMap.get(singleton);
+        }
     };
 }

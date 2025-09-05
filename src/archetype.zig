@@ -41,8 +41,6 @@ pub fn Archetype(
 ) type {
     return struct {
         comptime template: Template = template,
-        comptime componentBitset: std.bit_set.StaticBitSet(componentCount) = ComponentBitset,
-        comptime tagBitset: std.bit_set.StaticBitSet(tagCount) = TagBitset,
 
         container: TupleOfArrayLists(template.components),
         entityToRowMap: std.AutoHashMapUnmanaged(EntityType, RowType),
@@ -50,6 +48,8 @@ pub fn Archetype(
         entitys: u32,
 
         const Self = @This();
+        pub const componentBitset: std.bit_set.StaticBitSet(componentCount) = ComponentBitset;
+        pub const tagBitset: std.bit_set.StaticBitSet(tagCount) = TagBitset;
 
         pub const init: Self = .{
             .container = init: {
