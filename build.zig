@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const qoi = b.addModule("ecs", .{
+    const ecs = b.addModule("ecs", .{
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
@@ -13,29 +13,24 @@ pub fn build(b: *std.Build) void {
     const lib = b.addLibrary(.{
         .linkage = .static,
         .name = "Ecs",
-        .root_module = qoi,
+        .root_module = ecs,
     });
 
     b.installArtifact(lib);
 
-    // Tests:
-    const testFiles = .{"escTest"};
+    const ecsTests = b.createModule(.{
+        .root_source_file = b.path("src/ecs.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     const test_step = b.step("test", "Run unit tests");
 
-    inline for (testFiles) |fileName| {
-        const testModule = b.createModule(.{
-            .root_source_file = b.path("src/" ++ fileName ++ ".zig"),
-            .target = target,
-            .optimize = optimize,
-        });
+    const unitTest = b.addTest(.{
+        .root_module = ecsTests,
+    });
 
-        const unitTest = b.addTest(.{
-            .root_module = testModule,
-        });
+    const runUnitTest = b.addRunArtifact(unitTest);
 
-        const runUnitTest = b.addRunArtifact(unitTest);
-
-        test_step.dependOn(&runUnitTest.step);
-    }
+    test_step.dependOn(&runUnitTest.step);
 }
