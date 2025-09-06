@@ -149,6 +149,7 @@ pub fn Archetype(
             self.entitys -= 1;
         }
 
+        // FIXME: Doesn't work.
         pub fn getEntitys(self: *Self) []EntityType {
             const Header = struct {
                 values: [*]RowType,

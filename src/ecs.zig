@@ -741,6 +741,43 @@ test "Iterating over a component" {
     }
 }
 
+test "Checking iterator entitys" {
+    const Collider = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Position = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Tag = struct {};
+
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    for (0..100) |_| {
+        _ = ecs.createEntity(
+            .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+            .{ Position{ .x = 1, .y = 1 }, Collider{ .x = 5, .y = 5 } },
+        );
+    }
+
+    var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = null }).?;
+    defer iterator.deinit();
+
+    var i: u32 = 0;
+    while (iterator.next()) |_| {
+        std.debug.print("{any}\n", .{iterator.getCurrentEntity().value()});
+        try std.testing.expect(iterator.getCurrentEntity().value() == i);
+        i += 1;
+    }
+}
+
 test "Iterating over multiple components" {
     const Collider = struct {
         x: u32,
