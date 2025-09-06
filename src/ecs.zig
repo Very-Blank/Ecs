@@ -366,6 +366,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return &self.archetypes[archetypeIndex];
         }
 
+        /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getIterator(self: *Self, comptime component: type, comptime @"tags?": ?[]const type, comptime exclude: Template) ?Iterator(component) {
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&[_]type{component});
             const tagBitset: TagBitset = comptime (if (@"tags?") |tags| comptimeGetTagBitset(tags) else .initEmpty());
@@ -409,6 +410,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return Iterator(component).init(componentArrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
 
+        /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getTupleIterator(self: *Self, comptime template: Template, comptime exclude: Template) ?TupleIterator(template.components) {
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(template.components);
             const tagBitset: TagBitset = comptime (if (template.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
