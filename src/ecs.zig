@@ -398,7 +398,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 const array = self.archetypes[index].getComponentArray(component);
                 if (array.len > 0) {
                     componentArrays.append(self.allocator, array) catch unreachable;
-                    entitys.append(self.allocator, self.archetypes[index].getEntitys()) catch unreachable;
+                    entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
                 }
             }
 
@@ -454,7 +454,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                     const array = self.archetypes[index].getComponentArray(component);
                     if (array.len > 0) {
                         tupleOfArrayList[j].append(self.allocator, array) catch unreachable;
-                        if (comptime j == 0) entitys.append(self.allocator, self.archetypes[index].getEntitys()) catch unreachable;
+                        if (comptime j == 0) entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
                     }
                 }
             }
@@ -767,14 +767,28 @@ test "Checking iterator entitys" {
         );
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = null }).?;
-    defer iterator.deinit();
+    {
+        var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = null }).?;
+        defer iterator.deinit();
 
-    var i: u32 = 0;
-    while (iterator.next()) |_| {
-        std.debug.print("{any}\n", .{iterator.getCurrentEntity().value()});
-        try std.testing.expect(iterator.getCurrentEntity().value() == i);
-        i += 1;
+        var i: u32 = 0;
+        while (iterator.next()) |_| {
+            try std.testing.expect(iterator.getCurrentEntity().value() == i);
+            i += 1;
+        }
+    }
+
+    {
+        ecs.destroyEntity(EntityType.make(0));
+        ecs.clearDestroyedEntitys();
+
+        var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = null }).?;
+        defer iterator.deinit();
+        if (iterator.next()) |_| {
+            try std.testing.expect(iterator.currentEntity.value() == 99);
+        } else {
+            return error.TestUnexpectedResult;
+        }
     }
 }
 

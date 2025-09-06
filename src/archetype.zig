@@ -44,7 +44,7 @@ pub fn Archetype(
         container: TupleOfArrayLists(template.components),
         entityToRowMap: std.AutoHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoHashMapUnmanaged(RowType, EntityType),
-        entitys: u32,
+        entitys: std.ArrayListUnmanaged(EntityType),
 
         const Self = @This();
         pub const componentBitset: std.bit_set.StaticBitSet(componentCount) = ComponentBitset;
@@ -61,7 +61,7 @@ pub fn Archetype(
             },
             .entityToRowMap = .empty,
             .rowToEntityMap = .empty,
-            .entitys = 0,
+            .entitys = .empty,
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
@@ -109,6 +109,7 @@ pub fn Archetype(
 
             self.entityToRowMap.deinit(allocator);
             self.rowToEntityMap.deinit(allocator);
+            self.entitys.deinit(allocator);
         }
 
         pub fn append(self: *Self, entity: EntityType, components: compTypes.TupleOfComponents(template.components), allocator: std.mem.Allocator) !void {
@@ -116,10 +117,9 @@ pub fn Archetype(
                 try self.container[i].append(allocator, components[i]);
             }
 
-            try self.entityToRowMap.put(allocator, entity, RowType.make(self.entitys));
-            try self.rowToEntityMap.put(allocator, RowType.make(self.entitys), entity);
-
-            self.entitys += 1;
+            try self.entitys.append(allocator, entity);
+            try self.entityToRowMap.put(allocator, entity, RowType.make(@intCast(self.entitys.items.len - 1)));
+            try self.rowToEntityMap.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity);
         }
 
         pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
@@ -131,33 +131,22 @@ pub fn Archetype(
                 _ = self.container[i].swapRemove(row.value());
             }
 
-            if (row.value() == self.entitys - 1 or self.entitys == 1) {
+            if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
                 std.debug.assert(self.entityToRowMap.remove(entity));
                 std.debug.assert(self.rowToEntityMap.remove(row));
+                _ = self.entitys.swapRemove(row.value());
             } else {
-                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(self.entitys - 1))) |endEntity| endEntity else {
+                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
                     unreachable;
                 };
 
                 try self.entityToRowMap.put(allocator, rowEndEntity, row);
                 try self.rowToEntityMap.put(allocator, row, rowEndEntity);
 
+                _ = self.entitys.swapRemove(row.value());
                 std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(RowType.make(self.entitys - 1)));
+                std.debug.assert(self.rowToEntityMap.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
             }
-
-            self.entitys -= 1;
-        }
-
-        // FIXME: Doesn't work.
-        pub fn getEntitys(self: *Self) []EntityType {
-            const Header = struct {
-                values: [*]RowType,
-                keys: [*]EntityType,
-                capacity: @TypeOf(self.entityToRowMap).Size,
-            };
-
-            return @as(*Header, @ptrCast(@as([*]Header, @ptrCast(@alignCast(self.entityToRowMap.metadata.?))) - 1)).keys[0..self.entitys];
         }
 
         pub fn getComponentArray(self: *Self, comptime component: type) []component {
