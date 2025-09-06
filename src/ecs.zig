@@ -300,6 +300,12 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.destroyedEntitys.clearAndFree(self.allocator);
         }
 
+        pub fn getEntityComponent(
+            self: Self,
+            entity: EntityType,
+            comptime component: type,
+        ) component {}
+
         pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
             outer: for (components) |component| {
