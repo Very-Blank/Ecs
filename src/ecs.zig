@@ -17,6 +17,14 @@ pub const Template: type = struct {
     components: []const type,
     tags: ?[]const type,
 
+    pub fn getComponentIndex(self: *const Template, component: type) usize {
+        for (self.components, 0..) |comp, i| {
+            if (comp == component) return i;
+        }
+
+        @compileError("Invalid component give " ++ @typeName(component) ++ ".");
+    }
+
     pub fn eql(self: *const Template, other: Template) bool {
         if (self.components.len != other.components.len) return false;
 
@@ -301,10 +309,20 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn getEntityComponent(
-            self: Self,
+            self: *Self,
             entity: EntityType,
             comptime component: type,
-        ) component {}
+        ) !*component {
+            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            inline for (self.archetypes, 0..) |archetype, i| {
+                if (i == archetypeIndex) {
+                    const columnIndex = comptime self.archetypes[i].template.getComponentIndex(component);
+                    return &archetype.container[columnIndex].items[archetype.entityToRowMap.get(entity).?.value()];
+                }
+            }
+
+            return error.ComponentNotFound;
+        }
 
         pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
@@ -630,6 +648,50 @@ test "Creating a new entity" {
         try std.testing.expect(item.x == 5);
         try std.testing.expect(item.y == 5);
     }
+}
+
+test "Getting a single component that an entity owns." {
+    const Collider = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Position = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Tag = struct {};
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &[_]type{Position}, .tags = null },
+        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    {
+        const entity = ecs.createEntity(
+            .{ .components = &[_]type{Position}, .tags = null },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+            position.x = 2;
+        }
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 2, .y = 1 }, position.*);
+        }
+    }
+
+    _ = ecs.createEntity(
+        .{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} },
+        .{ Collider{ .x = 5, .y = 5 }, Position{ .x = 4, .y = 4 } },
+    );
 }
 
 test "Destroing an entity" {
