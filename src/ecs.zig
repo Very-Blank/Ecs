@@ -14,8 +14,8 @@ const TupleOfSliceArrayLists = @import("comptimeTypes.zig").TupleOfSliceArrayLis
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
 pub const Template: type = struct {
-    components: []const type,
-    tags: ?[]const type,
+    components: []const type = &[_]type{},
+    tags: ?[]const type = null,
 
     pub fn getComponentIndex(self: *const Template, component: type) usize {
         for (self.components, 0..) |comp, i| {
