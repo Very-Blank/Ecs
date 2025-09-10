@@ -546,7 +546,15 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn getSingletonsEntity(self: *Self, singleton: SingletonType) ?EntityPointer {
             std.debug.assert(singleton.value() < self.singletons.items.len);
-            return self.singletonToEntityMap.get(singleton);
+            if (self.singletonToEntityMap.get(singleton)) |entity| {
+                if (self.entityToArchetypeMap.get(entity)) |_| {
+                    return entity;
+                }
+
+                std.debug.assert(self.singletonToEntityMap.remove(singleton));
+            }
+
+            return null;
         }
     };
 }
