@@ -247,6 +247,14 @@ pub fn Ecs(comptime templates: []const Template) type {
             return false;
         }
 
+        pub fn getEntityPointer(self: *Self, entity: EntityType) !EntityPointer {
+            if (self.entityToArchetypeMap.get(entity)) |archetypePtr| {
+                return .{ .entity = entity, .generation = archetypePtr.generation };
+            }
+
+            return error.MissingEntity;
+        }
+
         pub fn createEntity(self: *Self, comptime template: Template, components: compTypes.TupleOfComponents(template.components)) EntityPointer {
             const newEntity: EntityType, const generation: GenerationType = init: {
                 if (self.unusedEntitys.items.len > 0) {
