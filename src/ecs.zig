@@ -506,7 +506,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             errdefer entitys.deinit(self.allocator);
 
             inline for (matchinArchetypesIndices) |index| {
-                inline for (self.archetypes[index].template.components, 0..) |component, j| {
+                inline for (template.components, 0..) |component, j| {
                     const array = self.archetypes[index].getComponentArray(component);
                     if (array.len > 0) {
                         tupleOfArrayList[j].append(self.allocator, array) catch unreachable;
