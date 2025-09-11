@@ -17,6 +17,14 @@ pub const Template: type = struct {
     components: []const type = &[_]type{},
     tags: ?[]const type = null,
 
+    pub fn hasComponent(self: *const Template, component: type) bool {
+        for (self.components) |comp| {
+            if (comp == component) return true;
+        }
+
+        return false;
+    }
+
     pub fn getComponentIndex(self: *const Template, component: type) usize {
         for (self.components, 0..) |comp, i| {
             if (comp == component) return i;
@@ -308,6 +316,25 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.destroyedEntitys.clearAndFree(self.allocator);
         }
 
+        pub fn entityHasComponent(
+            self: *Self,
+            entity: EntityType,
+            comptime component: type,
+        ) bool {
+            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            inline for (self.archetypes, 0..) |archetype, i| {
+                if (i == archetypeIndex) {
+                    if (comptime archetype.template.hasComponent(component)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            return false;
+        }
+
         pub fn getEntityComponent(
             self: *Self,
             entity: EntityType,
@@ -316,8 +343,11 @@ pub fn Ecs(comptime templates: []const Template) type {
             const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
             inline for (self.archetypes, 0..) |archetype, i| {
                 if (i == archetypeIndex) {
-                    const columnIndex = comptime self.archetypes[i].template.getComponentIndex(component);
-                    return &archetype.container[columnIndex].items[archetype.entityToRowMap.get(entity).?.value()];
+                    if (comptime archetype.template.hasComponent(component)) {
+                        const columnIndex = comptime archetype.template.getComponentIndex(component);
+                        return &archetype.container[columnIndex].items[archetype.entityToRowMap.get(entity).?.value()];
+                    }
+                    return error.ComponentNotFound;
                 }
             }
 
@@ -547,7 +577,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn getSingletonsEntity(self: *Self, singleton: SingletonType) ?EntityPointer {
             std.debug.assert(singleton.value() < self.singletons.items.len);
             if (self.singletonToEntityMap.get(singleton)) |entity| {
-                if (self.entityToArchetypeMap.get(entity)) |_| {
+                if (self.entityToArchetypeMap.get(entity.entity)) |_| {
                     return entity;
                 }
 
