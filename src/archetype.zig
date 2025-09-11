@@ -128,7 +128,7 @@ pub fn Archetype(
             };
 
             inline for (template.components, 0..) |component, i| {
-                const oldComponent = self.container[i].swapRemove(row.value());
+                var oldComponent = self.container[i].swapRemove(row.value());
                 if (@hasDecl(component, "deinit")) {
                     switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |@"fn"| {
