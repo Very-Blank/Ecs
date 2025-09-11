@@ -127,8 +127,40 @@ pub fn Archetype(
                 unreachable;
             };
 
-            inline for (0..template.components.len) |i| {
-                _ = self.container[i].swapRemove(row.value());
+            inline for (template.components, 0..) |component, i| {
+                const oldComponent = self.container[i].swapRemove(row.value());
+                if (@hasDecl(component, "deinit")) {
+                    switch (@typeInfo(@TypeOf(component.deinit))) {
+                        .@"fn" => |@"fn"| {
+                            if (@"fn".params.len == 1) {
+                                const paramType = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                switch (@typeInfo(paramType)) {
+                                    .pointer => |pointer| {
+                                        if (pointer.child == component) {
+                                            oldComponent.deinit();
+                                        }
+                                    },
+                                    else => {},
+                                }
+                            }
+
+                            if (@"fn".params.len == 2) {
+                                const paramType1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                const paramType2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
+
+                                switch (@typeInfo(paramType1)) {
+                                    .pointer => |pointer| {
+                                        if (pointer.child == component and paramType2 == std.mem.Allocator) {
+                                            oldComponent.deinit(allocator);
+                                        }
+                                    },
+                                    else => {},
+                                }
+                            }
+                        },
+                        else => {},
+                    }
+                }
             }
 
             if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
