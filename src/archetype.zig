@@ -74,8 +74,8 @@ pub fn Archetype(
                                 switch (@typeInfo(paramType)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component) {
-                                            for (self.container[i].items) |value| {
-                                                value.deinit();
+                                            for (0..self.container[i].items.len) |j| {
+                                                self.container[i].items[j].deinit();
                                             }
                                         }
                                     },
@@ -90,8 +90,8 @@ pub fn Archetype(
                                 switch (@typeInfo(paramType1)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component and paramType2 == std.mem.Allocator) {
-                                            for (self.container[i].items) |value| {
-                                                value.deinit(allocator);
+                                            for (0..self.container[i].items.len) |j| {
+                                                self.container[i].items[j].deinit(allocator);
                                             }
                                         }
                                     },
