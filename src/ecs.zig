@@ -335,9 +335,8 @@ pub fn Ecs(comptime templates: []const Template) type {
                     if (comptime archetype.template.hasComponent(component)) {
                         return true;
                     }
+                    return false;
                 }
-
-                return false;
             }
 
             return false;
