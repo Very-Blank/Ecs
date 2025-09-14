@@ -361,6 +361,32 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.ComponentNotFound;
         }
 
+        pub fn addComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
+            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            inline for (self.archetypes, 0..) |archetype, i| {
+                if (i == archetypeIndex) {
+                    // get current archetype bitset, add component to it and check what would equal that new mutation.
+                }
+            }
+
+            return error.ComponentNotFound;
+        }
+
+        pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
+            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            inline for (self.archetypes, 0..) |archetype, i| {
+                if (i == archetypeIndex) {
+                    // get current archetype bitset, remove component from it and check what would equal that new mutation.
+                }
+            }
+
+            return error.ComponentNotFound;
+        }
+
+        pub fn addTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
+
+        pub fn removeTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
+
         pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
             outer: for (components) |component| {
