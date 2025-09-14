@@ -367,6 +367,10 @@ pub fn Ecs(comptime templates: []const Template) type {
                 const uLandType = ULandType.get(component);
                 for (componentTypes, 0..) |existingComp, i| {
                     if (uLandType.eql(existingComp)) {
+                        if (bitset.isSet(i)) {
+                            @compileError("Components had two of the same component " ++ @typeName(component) ++ ", Which is not allowed.");
+                        }
+
                         bitset.set(i);
                         continue :outer;
                     }
@@ -384,6 +388,10 @@ pub fn Ecs(comptime templates: []const Template) type {
                 const uLandType = ULandType.get(tag);
                 for (tagsTypes, 0..) |existingComp, i| {
                     if (uLandType.eql(existingComp)) {
+                        if (bitset.isSet(i)) {
+                            @compileError("Tags had two of the same tag " ++ @typeName(tag) ++ ", Which is not allowed.");
+                        }
+
                         bitset.set(i);
                         continue :outer;
                     }
