@@ -1,6 +1,6 @@
 const std = @import("std");
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
-const TupleOfComponentPtrs = @import("comptimeTypes.zig").TupleOfComponentPtrs;
+const TupleOfComponentPtrs = @import("comptimeTypes.zig").TupleOfItemPtrs;
 const EntityType = @import("ecs.zig").EntityType;
 
 pub fn TupleIterator(comptime components: []const type) type {

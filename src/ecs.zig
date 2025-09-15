@@ -112,6 +112,8 @@ pub const ArchetypePointer = struct {
     generation: GenerationType,
 };
 
+// NOTE: Add functions that assume that entity has a certain template so we can speed up some operations.
+
 pub fn Ecs(comptime templates: []const Template) type {
     // FIXME: Remove bad templates maybe?
     for (templates, 1..) |template, i| {
@@ -255,7 +257,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.MissingEntity;
         }
 
-        pub fn createEntity(self: *Self, comptime template: Template, components: compTypes.TupleOfComponents(template.components)) EntityPointer {
+        pub fn createEntity(self: *Self, comptime template: Template, components: compTypes.TupleOfItems(template.components)) EntityPointer {
             const newEntity: EntityType, const generation: GenerationType = init: {
                 if (self.unusedEntitys.items.len > 0) {
                     const entityPtr = self.unusedEntitys.pop().?;
@@ -277,13 +279,13 @@ pub fn Ecs(comptime templates: []const Template) type {
                 @compileError("Supplied template didn't have a corresponding archetype.");
             };
 
-            if (compTypes.TupleOfComponents(template.components) == compTypes.TupleOfComponents(self.archetypes[archetypeIndex].template.components)) {
+            if (compTypes.TupleOfItems(template.components) == compTypes.TupleOfItems(self.archetypes[archetypeIndex].template.components)) {
                 self.archetypes[archetypeIndex].append(newEntity, components, self.allocator) catch unreachable;
                 self.entityToArchetypeMap.put(self.allocator, newEntity, .{ .archetype = ArchetypeType.make(@intCast(archetypeIndex)), .generation = generation }) catch unreachable;
             } else {
                 // NOTE: User was not kind.
-                const newComponents: compTypes.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = init: {
-                    var newComponents: compTypes.TupleOfComponents(self.archetypes[archetypeIndex].template.components) = undefined;
+                const newComponents: compTypes.TupleOfItems(self.archetypes[archetypeIndex].template.components) = init: {
+                    var newComponents: compTypes.TupleOfItems(self.archetypes[archetypeIndex].template.components) = undefined;
                     outer: inline for (self.archetypes[archetypeIndex].template.components, 0..) |aComponent, j| {
                         inline for (template.components, 0..) |uComponent, k| {
                             if (aComponent == uComponent) {

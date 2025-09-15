@@ -112,7 +112,7 @@ pub fn Archetype(
             self.entitys.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity: EntityType, components: compTypes.TupleOfComponents(template.components), allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity: EntityType, components: compTypes.TupleOfItems(template.components), allocator: std.mem.Allocator) !void {
             inline for (0..template.components.len) |i| {
                 try self.container[i].append(allocator, components[i]);
             }
