@@ -365,9 +365,24 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn addComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
             const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
+
             inline for (self.archetypes, 0..) |archetype, i| {
                 if (i == archetypeIndex) {
+                    archetype[i];
                     // get current archetype bitset, add component to it and check what would equal that new mutation.
+                    const newComponentBitset = comptime archetype[i].componentBitset.unionWith(componentBitset);
+                    const archtypeIndex = comptime init: {
+                        for (self.archetypes, 0..) |arch, j| {
+                            if (@TypeOf(arch).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
+                                @TypeOf(arch).tagBitset.intersectWith(archetype.tagBitset).eql(archetype.tagBitset))
+                            {
+                                break :init i;
+                            }
+                        }
+
+                        @compileError("Something is bad");
+                    };
                 }
             }
 
@@ -376,8 +391,10 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
             const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
             inline for (self.archetypes, 0..) |archetype, i| {
                 if (i == archetypeIndex) {
+                    // const newComponentBitset = archetype[i].componentBitset.unionWith(componentBitset);
                     // get current archetype bitset, remove component from it and check what would equal that new mutation.
                 }
             }
