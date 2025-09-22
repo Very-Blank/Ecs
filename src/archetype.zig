@@ -122,6 +122,8 @@ pub fn Archetype(
             try self.rowToEntityMap.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity);
         }
 
+        pub fn popRemove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !compTypes.TupleOfItems(template.components) {}
+
         pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
             const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
                 unreachable;

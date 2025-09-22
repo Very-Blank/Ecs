@@ -383,6 +383,8 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                         @compileError("Something is bad");
                     };
+
+                    self.archetypes[archetypeIndex].
                 }
             }
 
