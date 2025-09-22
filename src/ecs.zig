@@ -364,31 +364,28 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn addComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
-            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
 
-            inline for (self.archetypes, 0..) |archetype, i| {
-                if (i == archetypeIndex) {
-                    archetype[i];
-                    // get current archetype bitset, add component to it and check what would equal that new mutation.
-                    const newComponentBitset = comptime archetype[i].componentBitset.unionWith(componentBitset);
-                    const archtypeIndex = comptime init: {
-                        for (self.archetypes, 0..) |arch, j| {
-                            if (@TypeOf(arch).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
-                                @TypeOf(arch).tagBitset.intersectWith(archetype.tagBitset).eql(archetype.tagBitset))
+            inline for (0..self.archetypes.len) |i| {
+                if (i == oldArchetypeIndex) {
+                    const newComponentBitset = comptime self.archetypes[i].componentBitset.unionWith(componentBitset);
+                    const newArchtypeIndex = comptime init: {
+                        for (0..self.archetypes.len) |j| {
+                            if (@TypeOf(self.archetypes[j]).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
+                                @TypeOf(self.archetypes[j]).tagBitset.intersectWith(self.archetypes[i].tagBitset).eql(self.archetypes[i].tagBitset))
                             {
-                                break :init i;
+                                break :init j;
                             }
                         }
-
-                        @compileError("Something is bad");
                     };
 
-                    self.archetypes[archetypeIndex].
+                    self.archetypes[newArchtypeIndex].append(entity, self.archetypes[i].popRemove(entity) catch unreachable, self.allocator);
+                    return;
                 }
             }
 
-            return error.ComponentNotFound;
+            return error.InsertBetterError;
         }
 
         pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {

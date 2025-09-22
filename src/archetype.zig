@@ -122,7 +122,39 @@ pub fn Archetype(
             try self.rowToEntityMap.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity);
         }
 
-        pub fn popRemove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !compTypes.TupleOfItems(template.components) {}
+        pub fn popRemove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !compTypes.TupleOfItems(template.components) {
+            const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
+                unreachable;
+            };
+
+            const oldComponents: compTypes.TupleOfItems(template.components) = init: {
+                var oldComponents: compTypes.TupleOfItems(template.components) = undefined;
+                inline for (0..template.components.len) |i| {
+                    oldComponents[i] = self.container[i].swapRemove(row.value());
+                }
+
+                break :init oldComponents;
+            };
+
+            if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
+                std.debug.assert(self.entityToRowMap.remove(entity));
+                std.debug.assert(self.rowToEntityMap.remove(row));
+                _ = self.entitys.swapRemove(row.value());
+            } else {
+                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
+                    unreachable;
+                };
+
+                try self.entityToRowMap.put(allocator, rowEndEntity, row);
+                try self.rowToEntityMap.put(allocator, row, rowEndEntity);
+
+                _ = self.entitys.swapRemove(row.value());
+                std.debug.assert(self.entityToRowMap.remove(entity));
+                std.debug.assert(self.rowToEntityMap.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
+            }
+
+            return oldComponents;
+        }
 
         pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
             const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
