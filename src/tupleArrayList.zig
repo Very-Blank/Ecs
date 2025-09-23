@@ -35,7 +35,21 @@ pub fn TupleArrayList(items: []const type) type {
         count: usize,
 
         const Self = @This();
-        const initCapacity: usize = 1;
+
+        /// Very similar what std does, but we want the largest component to determinate init capacity.
+        const initCapacity: comptime_int = init: {
+            var minInitCapacity = @max(1, std.atomic.cache_line / @sizeOf(items[0]));
+            if (minInitCapacity == 1) break :init minInitCapacity;
+
+            for (1..items.len) |i| {
+                if (@max(1, std.atomic.cache_line / @sizeOf(items[i])) < minInitCapacity) {
+                    minInitCapacity = @max(1, std.atomic.cache_line / @sizeOf(items[0]));
+                    if (minInitCapacity == 1) break :init minInitCapacity;
+                }
+            }
+
+            break :init minInitCapacity;
+        };
 
         const empty: Self = Self{
             .tupleOfManyPointers = init: {
@@ -59,12 +73,25 @@ pub fn TupleArrayList(items: []const type) type {
             }
         }
 
+        // FIXME:  If allocation fails we must deallocated.
         pub fn append(
             self: *Self,
             item: compTypes.TupleOfComponents(items),
             allocator: std.mem.Allocator,
         ) !void {
-            if (self.capacity < self.count + 1) {}
+            if (self.capacity < self.count + 1) {
+                const newCapacity = growCapacity(self.capacity, self.capacity + 1);
+                inline for (items, 0..) |T, i| {
+                    const oldArray = self.tupleOfManyPointers[i][0..self.capacity];
+                    const newArray = try allocator.alloc(T, newCapacity);
+                    @memcpy(newArray[0..self.capacity], oldArray);
+                    newArray[self.capacity + 1] = item[i];
+
+                    allocator.free(oldArray);
+
+                    self.tupleOfManyPointers[i] = &newArray;
+                }
+            }
         }
 
         pub fn swapRemove(self: *Self, i: usize) compTypes.TupleOfItems(items) {}
