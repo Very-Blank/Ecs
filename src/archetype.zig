@@ -5,7 +5,7 @@ const Template = @import("ecs.zig").Template;
 const Allocator = std.mem.Allocator;
 
 const compTypes = @import("comptimeTypes.zig");
-const TupleOfArrayLists = @import("comptimeTypes.zig").TupleOfArrayLists;
+const TupleArrayList = @import("tupleArrayList.zig").TupleArrayList;
 
 pub const ArchetypeType = enum(u32) {
     _,
@@ -41,7 +41,7 @@ pub fn Archetype(
     return struct {
         comptime template: Template = template,
 
-        container: TupleOfArrayLists(template.components),
+        tupleArrayList: TupleArrayList(template.components),
         entityToRowMap: std.AutoHashMapUnmanaged(EntityType, RowType),
         rowToEntityMap: std.AutoHashMapUnmanaged(RowType, EntityType),
         entitys: std.ArrayListUnmanaged(EntityType),
@@ -51,14 +51,7 @@ pub fn Archetype(
         pub const tagBitset: std.bit_set.StaticBitSet(tagCount) = TagBitset;
 
         pub const init: Self = .{
-            .container = init: {
-                var container: TupleOfArrayLists(template.components) = undefined;
-                for (0..template.components.len) |i| {
-                    container[i] = .empty;
-                }
-
-                break :init container;
-            },
+            .tupleArrayList = .empty,
             .entityToRowMap = .empty,
             .rowToEntityMap = .empty,
             .entitys = .empty,
@@ -74,8 +67,8 @@ pub fn Archetype(
                                 switch (@typeInfo(paramType)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component) {
-                                            for (0..self.container[i].items.len) |j| {
-                                                self.container[i].items[j].deinit();
+                                            for (0..self.tupleArrayList.count) |j| {
+                                                self.tupleArrayList.tupleOfManyPointers[i][j].deinit();
                                             }
                                         }
                                     },
@@ -90,8 +83,8 @@ pub fn Archetype(
                                 switch (@typeInfo(paramType1)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component and paramType2 == std.mem.Allocator) {
-                                            for (0..self.container[i].items.len) |j| {
-                                                self.container[i].items[j].deinit(allocator);
+                                            for (0..self.tupleArrayList.count) |j| {
+                                                self.tupleArrayList.tupleOfManyPointers[i][j].deinit(allocator);
                                             }
                                         }
                                     },
@@ -102,10 +95,9 @@ pub fn Archetype(
                         else => {},
                     }
                 }
-
-                self.container[i].deinit(allocator);
-                self.container[i] = .empty;
             }
+
+            self.tupleArrayList.deinit(allocator);
 
             self.entityToRowMap.deinit(allocator);
             self.rowToEntityMap.deinit(allocator);
@@ -113,9 +105,7 @@ pub fn Archetype(
         }
 
         pub fn append(self: *Self, entity: EntityType, components: compTypes.TupleOfItems(template.components), allocator: std.mem.Allocator) !void {
-            inline for (0..template.components.len) |i| {
-                try self.container[i].append(allocator, components[i]);
-            }
+            try self.tupleArrayList.append(components, allocator);
 
             try self.entitys.append(allocator, entity);
             try self.entityToRowMap.put(allocator, entity, RowType.make(@intCast(self.entitys.items.len - 1)));
@@ -128,10 +118,7 @@ pub fn Archetype(
             };
 
             const oldComponents: compTypes.TupleOfItems(template.components) = init: {
-                var oldComponents: compTypes.TupleOfItems(template.components) = undefined;
-                inline for (0..template.components.len) |i| {
-                    oldComponents[i] = self.container[i].swapRemove(row.value());
-                }
+                const oldComponents: compTypes.TupleOfItems(template.components) = self.tupleArrayList.swapRemove(row.value());
 
                 break :init oldComponents;
             };
@@ -161,8 +148,8 @@ pub fn Archetype(
                 unreachable;
             };
 
+            var oldComponents = self.tupleArrayList.swapRemove(row.value());
             inline for (template.components, 0..) |component, i| {
-                var oldComponent = self.container[i].swapRemove(row.value());
                 if (@hasDecl(component, "deinit")) {
                     switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |@"fn"| {
@@ -171,7 +158,7 @@ pub fn Archetype(
                                 switch (@typeInfo(paramType)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component) {
-                                            oldComponent.deinit();
+                                            oldComponents[i].deinit();
                                         }
                                     },
                                     else => {},
@@ -185,7 +172,7 @@ pub fn Archetype(
                                 switch (@typeInfo(paramType1)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component and paramType2 == std.mem.Allocator) {
-                                            oldComponent.deinit(allocator);
+                                            oldComponents[i].deinit(allocator);
                                         }
                                     },
                                     else => {},
@@ -213,16 +200,6 @@ pub fn Archetype(
                 std.debug.assert(self.entityToRowMap.remove(entity));
                 std.debug.assert(self.rowToEntityMap.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
             }
-        }
-
-        pub fn getComponentArray(self: *Self, comptime component: type) []component {
-            inline for (template.components, 0..) |comp, i| {
-                if (component == comp) {
-                    return self.container[i].items;
-                }
-            }
-
-            @compileError("Component didn't exist in the archetype. Was given " ++ @typeName(component) ++ ".");
         }
     };
 }

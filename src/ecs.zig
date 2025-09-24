@@ -354,7 +354,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 if (i == archetypeIndex) {
                     if (comptime archetype.template.hasComponent(component)) {
                         const columnIndex = comptime archetype.template.getComponentIndex(component);
-                        return &archetype.container[columnIndex].items[archetype.entityToRowMap.get(entity).?.value()];
+                        return &archetype.tupleArrayList.tupleOfManyPointers[columnIndex][archetype.entityToRowMap.get(entity).?.value()];
                     }
                     return error.ComponentNotFound;
                 }
@@ -364,9 +364,9 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         /// This will transfer entity from one archetype to another, but this will require an existing component.
-        pub fn addComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
+        pub fn addComponentToEntity(self: Self, entity: EntityType, comptime T: type, component: T) !void {
             const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
-            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{T});
 
             inline for (0..self.archetypes.len) |i| {
                 if (i == oldArchetypeIndex) {
@@ -390,21 +390,35 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
-            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
-            inline for (self.archetypes, 0..) |archetype, i| {
-                if (i == archetypeIndex) {
-                    // const newComponentBitset = archetype[i].componentBitset.unionWith(componentBitset);
-                    // get current archetype bitset, remove component from it and check what would equal that new mutation.
+
+            inline for (0..self.archetypes.len) |i| {
+                if (i == oldArchetypeIndex) {
+                    const newComponentBitset = comptime self.archetypes[i].componentBitset.unionWith(componentBitset);
+                    const newArchtypeIndex = comptime init: {
+                        for (0..self.archetypes.len) |j| {
+                            if (@TypeOf(self.archetypes[j]).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
+                                @TypeOf(self.archetypes[j]).tagBitset.intersectWith(self.archetypes[i].tagBitset).eql(self.archetypes[i].tagBitset))
+                            {
+                                break :init j;
+                            }
+                        }
+                    };
+
+
+
+                    self.archetypes[newArchtypeIndex].append(entity,  catch unreachable, self.allocator);
+                    return;
                 }
             }
 
-            return error.ComponentNotFound;
+            return error.NoMatchingArchetype;
         }
 
-        pub fn addTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
-
-        pub fn removeTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
+        // pub fn addTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
+        //
+        // pub fn removeTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
 
         pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
@@ -510,8 +524,8 @@ pub fn Ecs(comptime templates: []const Template) type {
             errdefer entitys.deinit(self.allocator);
 
             inline for (matchinArchetypesIndices) |index| {
-                const array = self.archetypes[index].getComponentArray(component);
-                if (array.len > 0) {
+                if (self.archetypes[index].tupleArrayList.count > 0) {
+                    const array = self.archetypes[index].tupleArrayList.getItemArray(component);
                     componentArrays.append(self.allocator, array) catch unreachable;
                     entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
                 }
@@ -567,8 +581,8 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             inline for (matchinArchetypesIndices) |index| {
                 inline for (template.components, 0..) |component, j| {
-                    const array = self.archetypes[index].getComponentArray(component);
-                    if (array.len > 0) {
+                    if (self.archetypes[index].tupleArrayList.count > 0) {
+                        const array = self.archetypes[index].tupleArrayList.getItemArray(component);
                         tupleOfArrayList[j].append(self.allocator, array) catch unreachable;
                         if (comptime j == 0) entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
                     }
@@ -734,15 +748,17 @@ test "Creating a new entity" {
 
     const archetype = ecs.getArchetype(.{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} });
 
-    try std.testing.expect(archetype.container[0].items.len == 100);
-    try std.testing.expect(archetype.container[1].items.len == 100);
+    try std.testing.expect(archetype.tupleArrayList.count == 100);
 
-    for (archetype.container[0].items) |item| {
+    const positions = archetype.tupleArrayList.getItemArray(Position);
+
+    for (positions) |item| {
         try std.testing.expect(item.x == 4);
         try std.testing.expect(item.y == 4);
     }
 
-    for (archetype.container[1].items) |item| {
+    const colliders = archetype.tupleArrayList.getItemArray(Collider);
+    for (colliders) |item| {
         try std.testing.expect(item.x == 5);
         try std.testing.expect(item.y == 5);
     }

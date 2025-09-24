@@ -1,7 +1,7 @@
 const std = @import("std");
 const compTypes = @import("comptimeTypes.zig");
 
-pub fn TupleOfManyPointers(items: []const type) type {
+fn TupleOfManyPointers(items: []const type) type {
     var newFields: [items.len]std.builtin.Type.StructField = init: {
         var newFields: [items.len]std.builtin.Type.StructField = undefined;
         for (items, 0..) |item, i| {
@@ -11,7 +11,7 @@ pub fn TupleOfManyPointers(items: []const type) type {
                 .type = [*]item,
                 .default_value_ptr = null,
                 .is_comptime = false,
-                .alignment = [*]item,
+                .alignment = @alignOf([*]item),
             };
         }
 
@@ -51,9 +51,9 @@ pub fn TupleArrayList(items: []const type) type {
             break :init minInitCapacity;
         };
 
-        const empty: Self = Self{
+        pub const empty: Self = Self{
             .tupleOfManyPointers = init: {
-                const tupleOfManyPointers: @FieldType(Self, "tupleOfManyPointers") = undefined;
+                var tupleOfManyPointers: @FieldType(Self, "tupleOfManyPointers") = undefined;
                 for (0..items.len) |i| {
                     tupleOfManyPointers[i] = undefined;
                 }
@@ -63,6 +63,18 @@ pub fn TupleArrayList(items: []const type) type {
             .capacity = 0,
             .count = 0,
         };
+
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            if (self.capacity > 0) {
+                inline for (0..items.len) |i| {
+                    allocator.free(self.tupleOfManyPointers[i][0..self.capacity]);
+                    self.tupleOfManyPointers[i] = undefined;
+                }
+            }
+
+            self.capacity = 0;
+            self.count = 0;
+        }
 
         inline fn growCapacity(current: usize, minimum: usize) usize {
             var new = current;
@@ -76,10 +88,27 @@ pub fn TupleArrayList(items: []const type) type {
         // FIXME:  If allocation fails we must deallocated.
         pub fn append(
             self: *Self,
-            item: compTypes.TupleOfComponents(items),
+            item: compTypes.TupleOfItems(items),
             allocator: std.mem.Allocator,
         ) !void {
-            if (self.capacity < self.count + 1) {
+            if (self.capacity == 0) {
+                const newCapacity = growCapacity(self.capacity, self.capacity + 1);
+
+                inline for (items, 0..) |T, i| {
+                    const newArray = allocator.alloc(T, newCapacity) catch |err| {
+                        inline for (0..i) |j| {
+                            allocator.free(self.tupleOfManyPointers[j][0..newCapacity]);
+                            self.tupleOfManyPointers[j] = undefined;
+                        }
+
+                        return err;
+                    };
+
+                    self.tupleOfManyPointers[i] = newArray.ptr;
+                }
+
+                self.capacity = newCapacity;
+            } else if (self.capacity < self.count + 1) {
                 const newCapacity = growCapacity(self.capacity, self.capacity + 1);
 
                 inline for (items, 0..) |T, i| {
@@ -99,15 +128,12 @@ pub fn TupleArrayList(items: []const type) type {
                     };
 
                     @memcpy(newArray[0..self.capacity], oldArray);
-                    newArray[self.capacity + 1] = item[i];
-
                     allocator.free(oldArray);
 
-                    self.tupleOfManyPointers[i] = &newArray;
-                    self.capacity = newCapacity;
+                    self.tupleOfManyPointers[i] = newArray.ptr;
                 }
 
-                return;
+                self.capacity = newCapacity;
             }
 
             inline for (0..items.len) |i| {
@@ -123,15 +149,47 @@ pub fn TupleArrayList(items: []const type) type {
 
             var tupleOfItems: compTypes.TupleOfItems(items) = undefined;
 
-            if (i == self.count - 1) {
+            inline for (0..items.len) |j| {
+                tupleOfItems[j] = self.tupleOfManyPointers[j][i];
+            }
+
+            if (i != self.count - 1) {
                 inline for (0..items.len) |j| {
-                    if () {}
+                    self.tupleOfManyPointers[j][i] = self.tupleOfManyPointers[j][self.count - 1];
                 }
             }
+
+            self.count -= 1;
+
+            return tupleOfItems;
         }
 
-        pub fn getItemsArrays(self: *Self) compTypes.TupleOfItemsArrays(items) {}
+        pub fn getItemsArrays(self: *Self) compTypes.TupleOfItemsArrays(items) {
+            std.debug.assert(self.count > 0);
 
-        pub fn getItemArray(self: *Self, item: type) []item {}
+            var tupleOfItemArrays: compTypes.TupleOfItemsArrays(items) = undefined;
+
+            inline for (0..items.len) |i| {
+                tupleOfItemArrays[i] = self.tupleOfManyPointers[i][0..self.count];
+            }
+
+            return tupleOfItemArrays;
+        }
+
+        pub fn getItemArray(self: *Self, item: type) []item {
+            std.debug.assert(self.count > 0);
+
+            const index = comptime init: {
+                for (items, 0..) |T, i| {
+                    if (T == item) {
+                        break :init i;
+                    }
+                }
+
+                @compileError("TupleArrayList was given invalid type, " ++ @typeName(item) ++ ".");
+            };
+
+            return self.tupleOfManyPointers[index][0..self.count];
+        }
     };
 }
