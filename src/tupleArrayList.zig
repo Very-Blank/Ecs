@@ -81,20 +81,54 @@ pub fn TupleArrayList(items: []const type) type {
         ) !void {
             if (self.capacity < self.count + 1) {
                 const newCapacity = growCapacity(self.capacity, self.capacity + 1);
+
                 inline for (items, 0..) |T, i| {
                     const oldArray = self.tupleOfManyPointers[i][0..self.capacity];
-                    const newArray = try allocator.alloc(T, newCapacity);
+                    const newArray = allocator.alloc(T, newCapacity) catch |err| {
+                        inline for (0..i) |j| {
+                            allocator.free(self.tupleOfManyPointers[j][0..newCapacity]);
+                            self.tupleOfManyPointers[j] = undefined;
+                        }
+
+                        inline for (i..items.len) |j| {
+                            allocator.free(self.tupleOfManyPointers[j][0..self.capacity]);
+                            self.tupleOfManyPointers[j] = undefined;
+                        }
+
+                        return err;
+                    };
+
                     @memcpy(newArray[0..self.capacity], oldArray);
                     newArray[self.capacity + 1] = item[i];
 
                     allocator.free(oldArray);
 
                     self.tupleOfManyPointers[i] = &newArray;
+                    self.capacity = newCapacity;
+                }
+
+                return;
+            }
+
+            inline for (0..items.len) |i| {
+                self.tupleOfManyPointers[i][self.count] = item[i];
+            }
+
+            self.count += 1;
+            return;
+        }
+
+        pub fn swapRemove(self: *Self, i: usize) compTypes.TupleOfItems(items) {
+            std.debug.assert(i < self.count);
+
+            var tupleOfItems: compTypes.TupleOfItems(items) = undefined;
+
+            if (i == self.count - 1) {
+                inline for (0..items.len) |j| {
+                    if () {}
                 }
             }
         }
-
-        pub fn swapRemove(self: *Self, i: usize) compTypes.TupleOfItems(items) {}
 
         pub fn getItemsArrays(self: *Self) compTypes.TupleOfItemsArrays(items) {}
 

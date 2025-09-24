@@ -363,6 +363,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.ComponentNotFound;
         }
 
+        /// This will transfer entity from one archetype to another, but this will require an existing component.
         pub fn addComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
             const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
@@ -385,7 +386,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 }
             }
 
-            return error.InsertBetterError;
+            return error.NoMatchingArchetype;
         }
 
         pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
