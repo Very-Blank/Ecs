@@ -14,7 +14,7 @@ const TupleOfSliceArrayLists = @import("comptimeTypes.zig").TupleOfSliceArrayLis
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
 pub const Template: type = struct {
-    components: []const type = &[_]type{},
+    components: []const type = &.{},
     tags: ?[]const type = null,
 
     pub fn hasComponent(self: *const Template, component: type) bool {
@@ -363,6 +363,8 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.ComponentNotFound;
         }
 
+        // FIXME: Check that the entity doesn't already have this component.
+
         /// This will transfer entity from one archetype to another, but this will require an existing component.
         pub fn addComponentToEntity(self: Self, entity: EntityType, comptime T: type, component: T) !void {
             const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
@@ -381,7 +383,19 @@ pub fn Ecs(comptime templates: []const Template) type {
                         }
                     };
 
-                    self.archetypes[newArchtypeIndex].append(entity, self.archetypes[i].popRemove(entity) catch unreachable, self.allocator);
+                    const components = init: {
+                        const oldComponents = self.archetypes[i].popRemove(entity);
+                        var components: compTypes.TupleOfItems(self.archetypes[newArchtypeIndex].template.components) = undefined;
+                        inline for (self.archetypes[i].template.components, 0..) |comp, j| {
+                            components[self.archetypes[newArchtypeIndex].template.getComponentIndex(comp)] = oldComponents[j];
+                        }
+
+                        components[self.archetypes[newArchtypeIndex].template.getComponentIndex(T)] = component;
+
+                        break :init components;
+                    };
+
+                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator);
                     return;
                 }
             }
@@ -389,13 +403,12 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.NoMatchingArchetype;
         }
 
-        pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime component: type) !void {
+        pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime T: type) !void {
             const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
-            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
 
             inline for (0..self.archetypes.len) |i| {
                 if (i == oldArchetypeIndex) {
-                    const newComponentBitset = comptime self.archetypes[i].componentBitset.unionWith(componentBitset);
+                    const newComponentBitset = comptime self.archetypes[i].componentBitset.unset(comptimeGetComponentIndex(T));
                     const newArchtypeIndex = comptime init: {
                         for (0..self.archetypes.len) |j| {
                             if (@TypeOf(self.archetypes[j]).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
@@ -406,9 +419,17 @@ pub fn Ecs(comptime templates: []const Template) type {
                         }
                     };
 
+                    const components = init: {
+                        const oldComponents = self.archetypes[i].popRemove(entity);
+                        var components: compTypes.TupleOfItems(self.archetypes[newArchtypeIndex].template.components) = undefined;
+                        inline for (self.archetypes[newArchtypeIndex].template.components, 0..) |comp, j| {
+                            components[j] = oldComponents[self.archetypes[oldArchetypeIndex].getComponentIndex(comp)];
+                        }
 
+                        break :init components;
+                    };
 
-                    self.archetypes[newArchtypeIndex].append(entity,  catch unreachable, self.allocator);
+                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator);
                     return;
                 }
             }
@@ -439,6 +460,17 @@ pub fn Ecs(comptime templates: []const Template) type {
             }
 
             return bitset;
+        }
+
+        pub fn comptimeGetComponentIndex(comptime T: type) usize {
+            const uLandType = ULandType.get(T);
+            for (componentTypes, 0..) |existingComp, i| {
+                if (uLandType.eql(existingComp)) {
+                    return i;
+                }
+            }
+
+            @compileError("Was given a component " ++ @typeName(T) ++ ", that wasn't known by the ECS.");
         }
 
         pub fn comptimeGetTagBitset(comptime tags: []const type) TagBitset {
@@ -496,7 +528,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getIterator(self: *Self, comptime component: type, comptime @"tags?": ?[]const type, comptime exclude: Template) ?Iterator(component) {
-            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&[_]type{component});
+            const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
             const tagBitset: TagBitset = comptime (if (@"tags?") |tags| comptimeGetTagBitset(tags) else .initEmpty());
 
             const excludeComponentBitset: ComponentBitset = comptime comptimeGetComponentBitset(exclude.components);
@@ -677,9 +709,9 @@ test "Getting a bitset" {
     const Tag = struct {};
 
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
     defer ecs.deinit();
 
@@ -688,7 +720,7 @@ test "Getting a bitset" {
     {
         var expected = EcsType.ComponentBitset.initEmpty();
         expected.set(0);
-        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&[_]type{Position});
+        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&.{Position});
         try std.testing.expect(expected.eql(componentBitset));
     }
 
@@ -696,21 +728,21 @@ test "Getting a bitset" {
         var expected = EcsType.ComponentBitset.initEmpty();
         expected.set(0);
         expected.set(1);
-        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&[_]type{ Position, Collider });
+        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&.{ Position, Collider });
         try std.testing.expect(expected.eql(componentBitset));
     }
 
     {
         var expected = EcsType.ComponentBitset.initEmpty();
         expected.set(1);
-        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&[_]type{Collider});
+        const componentBitset = comptime EcsType.comptimeGetComponentBitset(&.{Collider});
         try std.testing.expect(expected.eql(componentBitset));
     }
 
     {
         var expected = EcsType.TagBitset.initEmpty();
         expected.set(0);
-        const tagBitset = comptime EcsType.comptimeGetTagBitset(&[_]type{Tag});
+        const tagBitset = comptime EcsType.comptimeGetTagBitset(&.{Tag});
         try std.testing.expect(expected.eql(tagBitset));
     }
 }
@@ -728,25 +760,25 @@ test "Creating a new entity" {
 
     const Tag = struct {};
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     for (0..100) |_| {
         _ = ecs.createEntity(
-            .{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} },
+            .{ .components = &.{ Collider, Position }, .tags = &.{Tag} },
             .{ Collider{ .x = 5, .y = 5 }, Position{ .x = 4, .y = 4 } },
         );
         _ = ecs.createEntity(
-            .{ .components = &[_]type{Position} },
+            .{ .components = &.{Position} },
             .{Position{ .x = 1, .y = 1 }},
         );
     }
 
-    const archetype = ecs.getArchetype(.{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} });
+    const archetype = ecs.getArchetype(.{ .components = &.{ Collider, Position }, .tags = &.{Tag} });
 
     try std.testing.expect(archetype.tupleArrayList.count == 100);
 
@@ -764,6 +796,46 @@ test "Creating a new entity" {
     }
 }
 
+test "Removing entitys component" {
+    const Collider = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Position = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Tag = struct {};
+    var ecs: Ecs(&[_]Template{
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    {
+        const entity = ecs.createEntity(
+            .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+            .{ Position{ .x = 1, .y = 1 }, Collider{ .x = 1, .y = 1 } },
+        );
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+
+            const collider = try ecs.getEntityComponent(entity.entity, Collider);
+            try std.testing.expectEqual(Collider{ .x = 1, .y = 1 }, collider.*);
+        }
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 2, .y = 1 }, position.*);
+        }
+    }
+}
+
 test "Getting a single component that an entity owns." {
     const Collider = struct {
         x: u32,
@@ -777,16 +849,16 @@ test "Getting a single component that an entity owns." {
 
     const Tag = struct {};
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     {
         const entity = ecs.createEntity(
-            .{ .components = &[_]type{Position} },
+            .{ .components = &.{Position} },
             .{Position{ .x = 1, .y = 1 }},
         );
 
@@ -803,7 +875,7 @@ test "Getting a single component that an entity owns." {
     }
 
     _ = ecs.createEntity(
-        .{ .components = &[_]type{ Collider, Position }, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Collider, Position }, .tags = &.{Tag} },
         .{ Collider{ .x = 5, .y = 5 }, Position{ .x = 4, .y = 4 } },
     );
 }
@@ -822,15 +894,15 @@ test "Destroing an entity" {
     const Tag = struct {};
 
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     const entityPtr = ecs.createEntity(
-        .{ .components = &[_]type{Position} },
+        .{ .components = &.{Position} },
         .{Position{ .x = 1, .y = 1 }},
     );
 
@@ -845,7 +917,7 @@ test "Destroing an entity" {
     try std.testing.expect(ecs.entityIsValid(entityPtr) == false);
 
     const entityPtr2 = ecs.createEntity(
-        .{ .components = &[_]type{Position} },
+        .{ .components = &.{Position} },
         .{Position{ .x = 1, .y = 1 }},
     );
 
@@ -869,29 +941,29 @@ test "Iterating over a component" {
     const Tag = struct {};
 
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     for (0..100) |_| {
         _ = ecs.createEntity(
-            .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+            .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
             .{ Position{ .x = 1, .y = 1 }, Collider{ .x = 5, .y = 5 } },
         );
         _ = ecs.createEntity(
-            .{ .components = &[_]type{Position} },
+            .{ .components = &.{Position} },
             .{Position{ .x = 1, .y = 1 }},
         );
         _ = ecs.createEntity(
-            .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+            .{ .components = &.{Position}, .tags = &.{Tag} },
             .{Position{ .x = 1, .y = 1 }},
         );
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{} }).?;
+    var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{}).?;
     defer iterator.deinit();
 
     try std.testing.expect(iterator.buffers.len == 3);
@@ -913,7 +985,7 @@ test "Iterating over a component" {
         try std.testing.expect(position.y == 2);
     }
 
-    var iterator2: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{}, .tags = &[_]type{Tag} }).?;
+    var iterator2: Iterator(Position) = ecs.getIterator(Position, null, .{ .tags = &.{Tag} }).?;
     defer iterator2.deinit();
 
     try std.testing.expect(iterator2.buffers.len == 1);
@@ -939,20 +1011,20 @@ test "Checking iterator entitys" {
     const Tag = struct {};
 
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     for (0..100) |_| {
         _ = ecs.createEntity(
-            .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+            .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
             .{ Position{ .x = 1, .y = 1 }, Collider{ .x = 5, .y = 5 } },
         );
     }
 
     {
-        var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{} }).?;
+        var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{}).?;
         defer iterator.deinit();
 
         var i: u32 = 0;
@@ -966,7 +1038,7 @@ test "Checking iterator entitys" {
         ecs.destroyEntity(EntityType.make(0));
         ecs.clearDestroyedEntitys();
 
-        var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{ .components = &[_]type{} }).?;
+        var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{}).?;
         defer iterator.deinit();
         if (iterator.next()) |_| {
             try std.testing.expect(iterator.currentEntity.value() == 99);
@@ -990,31 +1062,31 @@ test "Iterating over multiple components" {
     const Tag = struct {};
 
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     for (0..100) |_| {
         _ = ecs.createEntity(
-            .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+            .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
             .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
         );
         _ = ecs.createEntity(
-            .{ .components = &[_]type{Position} },
+            .{ .components = &.{Position} },
             .{Position{ .x = 1, .y = 1 }},
         );
         _ = ecs.createEntity(
-            .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+            .{ .components = &.{Position}, .tags = &.{Tag} },
             .{Position{ .x = 1, .y = 1 }},
         );
     }
 
-    var iterator: TupleIterator(&[_]type{ Position, Collider }) = ecs.getTupleIterator(
-        .{ .components = &[_]type{ Position, Collider } },
-        .{ .components = &[_]type{} },
+    var iterator: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(
+        .{ .components = &.{ Position, Collider } },
+        .{ .components = &.{} },
     ).?;
     defer iterator.deinit();
 
@@ -1028,8 +1100,8 @@ test "Iterating over multiple components" {
         components[0].y = 7;
     }
 
-    var iterator2: TupleIterator(&[_]type{ Position, Collider }) = ecs.getTupleIterator(
-        .{ .components = &[_]type{ Position, Collider } },
+    var iterator2: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(
+        .{ .components = &.{ Position, Collider } },
         .{},
     ).?;
     defer iterator2.deinit();
@@ -1054,28 +1126,28 @@ test "Singletons" {
     const Tag = struct {};
 
     var ecs: Ecs(&[_]Template{
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
-        .{ .components = &[_]type{Position} },
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
     defer ecs.deinit();
 
     const entity1 = ecs.createEntity(
-        .{ .components = &[_]type{ Position, Collider }, .tags = &[_]type{Tag} },
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ Position{ .x = 6, .y = 5 }, Collider{ .x = 5, .y = 5 } },
     );
     const entity2 = ecs.createEntity(
-        .{ .components = &[_]type{Position} },
+        .{ .components = &.{Position} },
         .{Position{ .x = 1, .y = 1 }},
     );
     const entity3 = ecs.createEntity(
-        .{ .components = &[_]type{Position}, .tags = &[_]type{Tag} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
         .{Position{ .x = 1, .y = 1 }},
     );
 
     {
-        const singleton = ecs.createSingleton(.{ .components = &[_]type{Position}, .tags = &[_]type{Tag} });
+        const singleton = ecs.createSingleton(.{ .components = &.{Position}, .tags = &.{Tag} });
         try std.testing.expect(ecs.getSingletonsEntity(singleton) == null);
 
         ecs.setSingletonsEntity(singleton, entity1) catch return error.TestUnexpectedResult;
@@ -1096,7 +1168,7 @@ test "Singletons" {
     }
 
     {
-        const singleton = ecs.createSingleton(.{ .components = &[_]type{Position} });
+        const singleton = ecs.createSingleton(.{ .components = &.{Position} });
         try std.testing.expect(ecs.getSingletonsEntity(singleton) == null);
 
         ecs.setSingletonsEntity(singleton, entity1) catch return error.TestUnexpectedResult;
