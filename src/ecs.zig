@@ -30,7 +30,7 @@ pub const Template: type = struct {
             if (comp == component) return i;
         }
 
-        @compileError("Invalid component give " ++ @typeName(component) ++ ".");
+        @compileError("Invalid component given, " ++ @typeName(component) ++ ". Wasn't in the components list.");
     }
 
     pub fn eql(self: *const Template, other: Template) bool {
@@ -366,36 +366,43 @@ pub fn Ecs(comptime templates: []const Template) type {
         // FIXME: Check that the entity doesn't already have this component.
 
         /// This will transfer entity from one archetype to another, but this will require an existing component.
-        pub fn addComponentToEntity(self: Self, entity: EntityType, comptime T: type, component: T) !void {
-            const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+        pub fn addComponentToEntity(self: *Self, entity: EntityType, comptime T: type, component: T) !void {
+            const oldArchetypeIndex, const generation = init: {
+                const archetypePointer = self.entityToArchetypeMap.get(entity).?;
+
+                break :init .{ archetypePointer.archetype.value(), archetypePointer.generation };
+            };
             const componentBitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{T});
 
-            inline for (0..self.archetypes.len) |i| {
+            outer: inline for (0..self.archetypes.len) |i| {
                 if (i == oldArchetypeIndex) {
-                    const newComponentBitset = comptime self.archetypes[i].componentBitset.unionWith(componentBitset);
+                    const newComponentBitset = comptime @TypeOf(self.archetypes[i]).componentBitset.unionWith(componentBitset);
                     const newArchtypeIndex = comptime init: {
                         for (0..self.archetypes.len) |j| {
-                            if (@TypeOf(self.archetypes[j]).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
-                                @TypeOf(self.archetypes[j]).tagBitset.intersectWith(self.archetypes[i].tagBitset).eql(self.archetypes[i].tagBitset))
+                            if (@TypeOf(self.archetypes[j]).componentBitset.eql(newComponentBitset) and
+                                @TypeOf(self.archetypes[j]).tagBitset.eql(@TypeOf(self.archetypes[i]).tagBitset))
                             {
                                 break :init j;
                             }
                         }
+
+                        break :outer; // NOTE: THIS BRANCH IS INVALID!
                     };
 
                     const components = init: {
-                        const oldComponents = self.archetypes[i].popRemove(entity);
+                        const oldComponents = self.archetypes[i].popRemove(entity, self.allocator) catch unreachable;
                         var components: compTypes.TupleOfItems(self.archetypes[newArchtypeIndex].template.components) = undefined;
                         inline for (self.archetypes[i].template.components, 0..) |comp, j| {
-                            components[self.archetypes[newArchtypeIndex].template.getComponentIndex(comp)] = oldComponents[j];
+                            components[comptime self.archetypes[newArchtypeIndex].template.getComponentIndex(comp)] = oldComponents[j];
                         }
 
-                        components[self.archetypes[newArchtypeIndex].template.getComponentIndex(T)] = component;
+                        components[comptime self.archetypes[newArchtypeIndex].template.getComponentIndex(T)] = component;
 
                         break :init components;
                     };
 
-                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator);
+                    self.entityToArchetypeMap.put(self.allocator, entity, .{ .archetype = ArchetypeType.make(@intCast(newArchtypeIndex)), .generation = generation }) catch unreachable;
+                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator) catch unreachable;
                     return;
                 }
             }
@@ -403,33 +410,45 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.NoMatchingArchetype;
         }
 
-        pub fn removeComponentToEntity(self: Self, entity: EntityType, comptime T: type) !void {
-            const oldArchetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+        pub fn removeComponentFromEntity(self: *Self, entity: EntityType, comptime T: type) !void {
+            const oldArchetypeIndex, const generation = init: {
+                const archetypePointer = self.entityToArchetypeMap.get(entity).?;
 
-            inline for (0..self.archetypes.len) |i| {
+                break :init .{ archetypePointer.archetype.value(), archetypePointer.generation };
+            };
+
+            outer: inline for (0..self.archetypes.len) |i| {
                 if (i == oldArchetypeIndex) {
-                    const newComponentBitset = comptime self.archetypes[i].componentBitset.unset(comptimeGetComponentIndex(T));
+                    const newComponentBitset = comptime init: {
+                        var newComponentBitset: ComponentBitset = @TypeOf(self.archetypes[i]).componentBitset;
+                        newComponentBitset.unset(comptimeGetComponentId(T));
+                        break :init newComponentBitset;
+                    };
+
                     const newArchtypeIndex = comptime init: {
                         for (0..self.archetypes.len) |j| {
-                            if (@TypeOf(self.archetypes[j]).componentBitset.intersectWith(newComponentBitset).eql(newComponentBitset) and
-                                @TypeOf(self.archetypes[j]).tagBitset.intersectWith(self.archetypes[i].tagBitset).eql(self.archetypes[i].tagBitset))
+                            if (@TypeOf(self.archetypes[j]).componentBitset.eql(newComponentBitset) and
+                                @TypeOf(self.archetypes[j]).tagBitset.eql(@TypeOf(self.archetypes[i]).tagBitset))
                             {
                                 break :init j;
                             }
                         }
+
+                        break :outer; // NOTE: THIS BRANCH IS INVALID!
                     };
 
                     const components = init: {
-                        const oldComponents = self.archetypes[i].popRemove(entity);
+                        const oldComponents = self.archetypes[i].popRemove(entity, self.allocator) catch unreachable;
                         var components: compTypes.TupleOfItems(self.archetypes[newArchtypeIndex].template.components) = undefined;
                         inline for (self.archetypes[newArchtypeIndex].template.components, 0..) |comp, j| {
-                            components[j] = oldComponents[self.archetypes[oldArchetypeIndex].getComponentIndex(comp)];
+                            components[j] = oldComponents[comptime self.archetypes[i].template.getComponentIndex(comp)];
                         }
 
                         break :init components;
                     };
 
-                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator);
+                    self.entityToArchetypeMap.put(self.allocator, entity, .{ .archetype = ArchetypeType.make(@intCast(newArchtypeIndex)), .generation = generation }) catch unreachable;
+                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator) catch unreachable;
                     return;
                 }
             }
@@ -462,7 +481,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return bitset;
         }
 
-        pub fn comptimeGetComponentIndex(comptime T: type) usize {
+        pub fn comptimeGetComponentId(comptime T: type) usize {
             const uLandType = ULandType.get(T);
             for (componentTypes, 0..) |existingComp, i| {
                 if (uLandType.eql(existingComp)) {
@@ -708,7 +727,7 @@ test "Getting a bitset" {
 
     const Tag = struct {};
 
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
@@ -759,7 +778,7 @@ test "Creating a new entity" {
     };
 
     const Tag = struct {};
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
@@ -796,7 +815,7 @@ test "Creating a new entity" {
     }
 }
 
-test "Removing entitys component" {
+test "Removing entity's component" {
     const Collider = struct {
         x: u32,
         y: u32,
@@ -808,7 +827,7 @@ test "Removing entitys component" {
     };
 
     const Tag = struct {};
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
@@ -825,13 +844,53 @@ test "Removing entitys component" {
             const position = try ecs.getEntityComponent(entity.entity, Position);
             try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
 
-            const collider = try ecs.getEntityComponent(entity.entity, Collider);
-            try std.testing.expectEqual(Collider{ .x = 1, .y = 1 }, collider.*);
+            try ecs.removeComponentFromEntity(entity.entity, Collider);
         }
 
         {
             const position = try ecs.getEntityComponent(entity.entity, Position);
-            try std.testing.expectEqual(Position{ .x = 2, .y = 1 }, position.*);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+            try std.testing.expect(!ecs.entityHasComponent(entity.entity, Collider));
+        }
+    }
+}
+
+test "Adding a component to entity" {
+    const Collider = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Position = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Tag = struct {};
+    var ecs: Ecs(&.{
+        .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
+        .{ .components = &.{Position}, .tags = &.{Tag} },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    {
+        const entity = ecs.createEntity(
+            .{ .components = &.{Position}, .tags = &.{Tag} },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+
+            try ecs.addComponentToEntity(entity.entity, Collider, .{ .x = 1, .y = 0 });
+        }
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+            try std.testing.expect(ecs.entityHasComponent(entity.entity, Collider));
         }
     }
 }
@@ -848,7 +907,7 @@ test "Getting a single component that an entity owns." {
     };
 
     const Tag = struct {};
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
@@ -893,7 +952,7 @@ test "Destroing an entity" {
 
     const Tag = struct {};
 
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
@@ -940,7 +999,7 @@ test "Iterating over a component" {
 
     const Tag = struct {};
 
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
@@ -1010,7 +1069,7 @@ test "Checking iterator entitys" {
 
     const Tag = struct {};
 
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
     }) = .init(std.testing.allocator);
 
@@ -1061,7 +1120,7 @@ test "Iterating over multiple components" {
 
     const Tag = struct {};
 
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
@@ -1125,7 +1184,7 @@ test "Singletons" {
 
     const Tag = struct {};
 
-    var ecs: Ecs(&[_]Template{
+    var ecs: Ecs(&.{
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
