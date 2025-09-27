@@ -25,12 +25,34 @@ pub const Template: type = struct {
         return false;
     }
 
+    pub fn hasTag(self: *const Template, tag: type) bool {
+        if (self.tags) |tags| {
+            for (tags) |t| {
+                if (t == tag) return true;
+            }
+        }
+
+        return false;
+    }
+
     pub fn getComponentIndex(self: *const Template, component: type) usize {
         for (self.components, 0..) |comp, i| {
             if (comp == component) return i;
         }
 
         @compileError("Invalid component given, " ++ @typeName(component) ++ ". Wasn't in the components list.");
+    }
+
+    pub fn getTagIndex(self: *const Template, tag: type) usize {
+        if (self.tags) |tags| {
+            for (tags, 0..) |t, i| {
+                if (t == tag) return i;
+            }
+        } else {
+            @compileError("Invalid tag given, " ++ @typeName(tag) ++ ". Template didn't have tags.");
+        }
+
+        @compileError("Invalid tag given, " ++ @typeName(tag) ++ ". Wasn't in the tag list");
     }
 
     pub fn eql(self: *const Template, other: Template) bool {
@@ -332,16 +354,32 @@ pub fn Ecs(comptime templates: []const Template) type {
             comptime component: type,
         ) bool {
             const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            const componentId = comptime comptimeGetComponentId(component);
+
             inline for (self.archetypes, 0..) |archetype, i| {
                 if (i == archetypeIndex) {
-                    if (comptime archetype.template.hasComponent(component)) {
-                        return true;
-                    }
-                    return false;
+                    return @TypeOf(archetype).componentBitset.isSet(componentId);
                 }
             }
 
-            return false;
+            unreachable; // NOTE: Would mean that entity exists in an archetype that isn't in archetypes.
+        }
+
+        pub fn entityHasTag(
+            self: *Self,
+            entity: EntityType,
+            comptime tag: type,
+        ) bool {
+            const archetypeIndex: u32 = self.entityToArchetypeMap.get(entity).?.archetype.value();
+            const tagId = comptime comptimeGetTagId(tag);
+
+            inline for (self.archetypes, 0..) |archetype, i| {
+                if (i == archetypeIndex) {
+                    return @TypeOf(archetype).tagBitset.isSet(tagId);
+                }
+            }
+
+            unreachable; // NOTE: Would mean that entity exists in an archetype that isn't in archetypes.
         }
 
         pub fn getEntityComponent(
@@ -456,9 +494,97 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.NoMatchingArchetype;
         }
 
-        // pub fn addTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
-        //
-        // pub fn removeTagToEntity(self: Self, entity: EntityType, comptime tag: type) !void {}
+        // FIXME: check if the entity already has this tag.
+
+        pub fn addTagToEntity(self: *Self, entity: EntityType, comptime tag: type) !void {
+            const oldArchetypeIndex, const generation = init: {
+                const archetypePointer = self.entityToArchetypeMap.get(entity).?;
+
+                break :init .{ archetypePointer.archetype.value(), archetypePointer.generation };
+            };
+            const tagBitset: TagBitset = comptime comptimeGetTagBitset(&.{tag});
+
+            outer: inline for (0..self.archetypes.len) |i| {
+                if (i == oldArchetypeIndex) {
+                    const newTagBitset = comptime @TypeOf(self.archetypes[i]).tagBitset.unionWith(tagBitset);
+                    const newArchtypeIndex = comptime init: {
+                        for (0..self.archetypes.len) |j| {
+                            if (@TypeOf(self.archetypes[j]).componentBitset.eql(@TypeOf(self.archetypes[i]).componentBitset) and
+                                @TypeOf(self.archetypes[j]).tagBitset.eql(newTagBitset))
+                            {
+                                break :init j;
+                            }
+                        }
+
+                        break :outer; // NOTE: THIS BRANCH IS INVALID!
+                    };
+
+                    const components = init: {
+                        const oldComponents = self.archetypes[i].popRemove(entity, self.allocator) catch unreachable;
+                        var components: compTypes.TupleOfItems(self.archetypes[newArchtypeIndex].template.components) = undefined;
+                        inline for (self.archetypes[i].template.components, 0..) |comp, j| {
+                            components[comptime self.archetypes[newArchtypeIndex].template.getComponentIndex(comp)] = oldComponents[j];
+                        }
+
+                        break :init components;
+                    };
+
+                    self.entityToArchetypeMap.put(self.allocator, entity, .{ .archetype = ArchetypeType.make(@intCast(newArchtypeIndex)), .generation = generation }) catch unreachable;
+                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator) catch unreachable;
+                    return;
+                }
+            }
+
+            return error.NoMatchingArchetype;
+        }
+
+        // FIXME: check if the entity actually has this tag so we can remove it.
+        pub fn removeTagFromEntity(self: *Self, entity: EntityType, comptime tag: type) !void {
+            const oldArchetypeIndex, const generation = init: {
+                const archetypePointer = self.entityToArchetypeMap.get(entity).?;
+
+                break :init .{ archetypePointer.archetype.value(), archetypePointer.generation };
+            };
+
+            outer: inline for (0..self.archetypes.len) |i| {
+                if (i == oldArchetypeIndex) {
+                    const newTagBitset = comptime init: {
+                        var newTagBitset = @TypeOf(self.archetypes[i]).tagBitset;
+                        newTagBitset.unset(comptimeGetTagId(tag));
+
+                        break :init newTagBitset;
+                    };
+
+                    const newArchtypeIndex = comptime init: {
+                        for (0..self.archetypes.len) |j| {
+                            if (@TypeOf(self.archetypes[j]).componentBitset.eql(@TypeOf(self.archetypes[i]).componentBitset) and
+                                @TypeOf(self.archetypes[j]).tagBitset.eql(newTagBitset))
+                            {
+                                break :init j;
+                            }
+                        }
+
+                        break :outer; // NOTE: THIS BRANCH IS INVALID!
+                    };
+
+                    const components = init: {
+                        const oldComponents = self.archetypes[i].popRemove(entity, self.allocator) catch unreachable;
+                        var components: compTypes.TupleOfItems(self.archetypes[newArchtypeIndex].template.components) = undefined;
+                        inline for (self.archetypes[i].template.components, 0..) |comp, j| {
+                            components[comptime self.archetypes[newArchtypeIndex].template.getComponentIndex(comp)] = oldComponents[j];
+                        }
+
+                        break :init components;
+                    };
+
+                    self.entityToArchetypeMap.put(self.allocator, entity, .{ .archetype = ArchetypeType.make(@intCast(newArchtypeIndex)), .generation = generation }) catch unreachable;
+                    self.archetypes[newArchtypeIndex].append(entity, components, self.allocator) catch unreachable;
+                    return;
+                }
+            }
+
+            return error.NoMatchingArchetype;
+        }
 
         pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
@@ -481,15 +607,15 @@ pub fn Ecs(comptime templates: []const Template) type {
             return bitset;
         }
 
-        pub fn comptimeGetComponentId(comptime T: type) usize {
-            const uLandType = ULandType.get(T);
+        pub fn comptimeGetComponentId(comptime component: type) usize {
+            const uLandType = ULandType.get(component);
             for (componentTypes, 0..) |existingComp, i| {
                 if (uLandType.eql(existingComp)) {
                     return i;
                 }
             }
 
-            @compileError("Was given a component " ++ @typeName(T) ++ ", that wasn't known by the ECS.");
+            @compileError("Was given a component " ++ @typeName(component) ++ ", that wasn't known by the ECS.");
         }
 
         pub fn comptimeGetTagBitset(comptime tags: []const type) TagBitset {
@@ -511,6 +637,17 @@ pub fn Ecs(comptime templates: []const Template) type {
             }
 
             return bitset;
+        }
+
+        pub fn comptimeGetTagId(comptime tag: type) usize {
+            const uLandType = ULandType.get(tag);
+            for (tagsTypes, 0..) |existingComp, i| {
+                if (uLandType.eql(existingComp)) {
+                    return i;
+                }
+            }
+
+            @compileError("Was given a tag " ++ @typeName(tag) ++ ", that wasn't known by the ECS.");
         }
 
         fn getMeantArchetypeTemplate(template: Template) Template {
@@ -891,6 +1028,80 @@ test "Adding a component to entity" {
             const position = try ecs.getEntityComponent(entity.entity, Position);
             try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
             try std.testing.expect(ecs.entityHasComponent(entity.entity, Collider));
+            const collider = try ecs.getEntityComponent(entity.entity, Collider);
+            try std.testing.expectEqual(Collider{ .x = 1, .y = 0 }, collider.*);
+        }
+    }
+}
+
+test "Adding a tag to entity" {
+    const Position = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Tag = struct {};
+    var ecs: Ecs(&.{
+        .{ .components = &.{Position}, .tags = &.{Tag} },
+        .{ .components = &.{Position}, .tags = null },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    {
+        const entity = ecs.createEntity(
+            .{ .components = &.{Position}, .tags = &.{} },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+
+            try std.testing.expect(!ecs.entityHasTag(entity.entity, Tag));
+            try ecs.addTagToEntity(entity.entity, Tag);
+        }
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+            try std.testing.expect(ecs.entityHasTag(entity.entity, Tag));
+        }
+    }
+}
+
+test "Removing a tag from entity" {
+    const Position = struct {
+        x: u32,
+        y: u32,
+    };
+
+    const Tag = struct {};
+    var ecs: Ecs(&.{
+        .{ .components = &.{Position}, .tags = &.{Tag} },
+        .{ .components = &.{Position}, .tags = null },
+    }) = .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    {
+        const entity = ecs.createEntity(
+            .{ .components = &.{Position}, .tags = &.{Tag} },
+            .{Position{ .x = 1, .y = 1 }},
+        );
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+            try std.testing.expect(ecs.entityHasTag(entity.entity, Tag));
+            try ecs.removeTagFromEntity(entity.entity, Tag);
+        }
+
+        {
+            const position = try ecs.getEntityComponent(entity.entity, Position);
+            try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
+
+            try std.testing.expect(!ecs.entityHasTag(entity.entity, Tag));
         }
     }
 }
