@@ -48,19 +48,19 @@ pub fn main() !void {
     defer tupleIterator.deinit();
 
     while (tupleIterator.next()) |components| {
-        try std.debug.assert(components[0].x == 4);
-        try std.debug.assert(components[0].y == 4);
+        std.debug.assert(components[0].x == 4);
+        std.debug.assert(components[0].y == 4);
 
-        try std.debug.assert(components[1].x == 1);
-        try std.debug.assert(components[1].y == 0);
+        std.debug.assert(components[1].x == 1);
+        std.debug.assert(components[1].y == 0);
     }
 
     var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{}).?;
     defer iterator.deinit();
 
     while (iterator.next()) |position| {
-        try std.debug.assert(position.x == 4);
-        try std.debug.assert(position.y == 4);
+        std.debug.assert(position.x == 4);
+        std.debug.assert(position.y == 4);
     }
 }
 ```
