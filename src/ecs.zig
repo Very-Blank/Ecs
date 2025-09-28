@@ -187,7 +187,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         const Self = @This();
 
-        pub const componentTypes: []ULandType = init: {
+        pub const componentTypes: []const ULandType = init: {
             var iComponentTypes: []ULandType = &[_]ULandType{};
             for (templates, 0..) |template, i| {
                 if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ".");
@@ -205,7 +205,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             break :init iComponentTypes;
         };
 
-        pub const tagsTypes: []ULandType = init: {
+        pub const tagsTypes: []const ULandType = init: {
             var iTagsTypes: []ULandType = &[_]ULandType{};
             for (templates, 0..) |template, i| {
                 if (template.tags) |tags| {
