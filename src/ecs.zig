@@ -137,6 +137,10 @@ pub const ArchetypePointer = struct {
 // NOTE: Add functions that assume that entity has a certain template so we can speed up some operations.
 
 pub fn Ecs(comptime templates: []const Template) type {
+    if (templates.len == 0) {
+        @compileError("Was called with an empty template array.");
+    }
+
     // FIXME: Remove bad templates maybe?
     for (templates, 1..) |template, i| {
         for (i..templates.len) |j| {
@@ -190,7 +194,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub const componentTypes: []const ULandType = init: {
             var iComponentTypes: []ULandType = &[_]ULandType{};
             for (templates, 0..) |template, i| {
-                if (templates.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ".");
+                if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ".");
                 outer: for (template.components, 0..) |component, j| {
                     if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ compTypes.itoa(i) ++ ", component index: " ++ compTypes.itoa(j));
                     const uLandType = ULandType.get(component);
