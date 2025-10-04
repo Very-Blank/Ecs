@@ -1,10 +1,10 @@
 const std = @import("std");
+const ct = @import("comptimeTypes.zig");
 
 const EntityType = @import("ecs.zig").EntityType;
 const Template = @import("ecs.zig").Template;
 const Allocator = std.mem.Allocator;
 
-const compTypes = @import("comptimeTypes.zig");
 const TupleArrayList = @import("tupleArrayList.zig").TupleArrayList;
 
 pub const ArchetypeType = enum(u32) {
@@ -33,27 +33,27 @@ pub const RowType = enum(u32) {
 
 pub fn Archetype(
     comptime template: Template,
-    comptime componentCount: usize,
-    comptime ComponentBitset: std.bit_set.StaticBitSet(componentCount),
-    comptime tagCount: usize,
-    comptime TagBitset: std.bit_set.StaticBitSet(tagCount),
+    comptime component_count: usize,
+    comptime ComponentBitset: std.bit_set.StaticBitSet(component_count),
+    comptime tag_count: usize,
+    comptime TagBitset: std.bit_set.StaticBitSet(tag_count),
 ) type {
     return struct {
         comptime template: Template = template,
 
-        tupleArrayList: TupleArrayList(template.components),
-        entityToRowMap: std.AutoHashMapUnmanaged(EntityType, RowType),
-        rowToEntityMap: std.AutoHashMapUnmanaged(RowType, EntityType),
+        tuple_array_list: TupleArrayList(template.components),
+        entity_to_row_map: std.AutoHashMapUnmanaged(EntityType, RowType),
+        row_to_entity_map: std.AutoHashMapUnmanaged(RowType, EntityType),
         entitys: std.ArrayListUnmanaged(EntityType),
 
         const Self = @This();
-        pub const componentBitset: std.bit_set.StaticBitSet(componentCount) = ComponentBitset;
-        pub const tagBitset: std.bit_set.StaticBitSet(tagCount) = TagBitset;
+        pub const component_bitset: std.bit_set.StaticBitSet(component_count) = ComponentBitset;
+        pub const tag_bitset: std.bit_set.StaticBitSet(tag_count) = TagBitset;
 
         pub const init: Self = .{
-            .tupleArrayList = .empty,
-            .entityToRowMap = .empty,
-            .rowToEntityMap = .empty,
+            .tuple_array_list = .empty,
+            .entity_to_row_map = .empty,
+            .row_to_entity_map = .empty,
             .entitys = .empty,
         };
 
@@ -63,12 +63,12 @@ pub fn Archetype(
                     switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |@"fn"| {
                             if (@"fn".params.len == 1) {
-                                const paramType = if (@"fn".params[0].type) |@"type"| @"type" else return;
-                                switch (@typeInfo(paramType)) {
+                                const param_type = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                switch (@typeInfo(param_type)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component) {
-                                            for (0..self.tupleArrayList.count) |j| {
-                                                self.tupleArrayList.tupleOfManyPointers[i][j].deinit();
+                                            for (0..self.tuple_array_list.count) |j| {
+                                                self.tuple_array_list.tuple_of_many_ptrs[i][j].deinit();
                                             }
                                         }
                                     },
@@ -77,14 +77,14 @@ pub fn Archetype(
                             }
 
                             if (@"fn".params.len == 2) {
-                                const paramType1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
-                                const paramType2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
+                                const param_type_1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                const param_type_2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
 
-                                switch (@typeInfo(paramType1)) {
+                                switch (@typeInfo(param_type_1)) {
                                     .pointer => |pointer| {
-                                        if (pointer.child == component and paramType2 == std.mem.Allocator) {
-                                            for (0..self.tupleArrayList.count) |j| {
-                                                self.tupleArrayList.tupleOfManyPointers[i][j].deinit(allocator);
+                                        if (pointer.child == component and param_type_2 == std.mem.Allocator) {
+                                            for (0..self.tuple_array_list.count) |j| {
+                                                self.tuple_array_list.tuple_of_many_ptrs[i][j].deinit(allocator);
                                             }
                                         }
                                     },
@@ -97,68 +97,68 @@ pub fn Archetype(
                 }
             }
 
-            self.tupleArrayList.deinit(allocator);
+            self.tuple_array_list.deinit(allocator);
 
-            self.entityToRowMap.deinit(allocator);
-            self.rowToEntityMap.deinit(allocator);
+            self.entity_to_row_map.deinit(allocator);
+            self.row_to_entity_map.deinit(allocator);
             self.entitys.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity: EntityType, components: compTypes.TupleOfItems(template.components), allocator: std.mem.Allocator) !void {
-            try self.tupleArrayList.append(components, allocator);
+        pub fn append(self: *Self, entity: EntityType, components: ct.TupleOfItems(template.components), allocator: std.mem.Allocator) !void {
+            try self.tuple_array_list.append(components, allocator);
 
             try self.entitys.append(allocator, entity);
-            try self.entityToRowMap.put(allocator, entity, RowType.make(@intCast(self.entitys.items.len - 1)));
-            try self.rowToEntityMap.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity);
+            try self.entity_to_row_map.put(allocator, entity, RowType.make(@intCast(self.entitys.items.len - 1)));
+            try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity);
         }
 
-        pub fn popRemove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !compTypes.TupleOfItems(template.components) {
-            const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
+        pub fn popRemove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !ct.TupleOfItems(template.components) {
+            const row: RowType = if (self.entity_to_row_map.get(entity)) |row| row else {
                 unreachable;
             };
 
-            const oldComponents: compTypes.TupleOfItems(template.components) = init: {
-                const oldComponents: compTypes.TupleOfItems(template.components) = self.tupleArrayList.swapRemove(row.value());
+            const old_components: ct.TupleOfItems(template.components) = init: {
+                const old_components: ct.TupleOfItems(template.components) = self.tuple_array_list.swapRemove(row.value());
 
-                break :init oldComponents;
+                break :init old_components;
             };
 
             if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
-                std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(row));
+                std.debug.assert(self.entity_to_row_map.remove(entity));
+                std.debug.assert(self.row_to_entity_map.remove(row));
                 _ = self.entitys.swapRemove(row.value());
             } else {
-                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
+                const row_end_entity = if (self.row_to_entity_map.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
                     unreachable;
                 };
 
-                try self.entityToRowMap.put(allocator, rowEndEntity, row);
-                try self.rowToEntityMap.put(allocator, row, rowEndEntity);
+                try self.entity_to_row_map.put(allocator, row_end_entity, row);
+                try self.row_to_entity_map.put(allocator, row, row_end_entity);
 
                 _ = self.entitys.swapRemove(row.value());
-                std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
+                std.debug.assert(self.entity_to_row_map.remove(entity));
+                std.debug.assert(self.row_to_entity_map.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
             }
 
-            return oldComponents;
+            return old_components;
         }
 
         pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
-            const row: RowType = if (self.entityToRowMap.get(entity)) |row| row else {
+            const row: RowType = if (self.entity_to_row_map.get(entity)) |row| row else {
                 unreachable;
             };
 
-            var oldComponents = self.tupleArrayList.swapRemove(row.value());
+            var old_components = self.tuple_array_list.swapRemove(row.value());
             inline for (template.components, 0..) |component, i| {
                 if (@hasDecl(component, "deinit")) {
                     switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |@"fn"| {
                             if (@"fn".params.len == 1) {
-                                const paramType = if (@"fn".params[0].type) |@"type"| @"type" else return;
-                                switch (@typeInfo(paramType)) {
+                                const param_type = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                switch (@typeInfo(param_type)) {
                                     .pointer => |pointer| {
                                         if (pointer.child == component) {
-                                            oldComponents[i].deinit();
+                                            old_components[i].deinit();
                                         }
                                     },
                                     else => {},
@@ -166,13 +166,13 @@ pub fn Archetype(
                             }
 
                             if (@"fn".params.len == 2) {
-                                const paramType1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
-                                const paramType2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
+                                const param_type_1 = if (@"fn".params[0].type) |@"type"| @"type" else return;
+                                const param_type_2 = if (@"fn".params[1].type) |@"type"| @"type" else return;
 
-                                switch (@typeInfo(paramType1)) {
+                                switch (@typeInfo(param_type_1)) {
                                     .pointer => |pointer| {
-                                        if (pointer.child == component and paramType2 == std.mem.Allocator) {
-                                            oldComponents[i].deinit(allocator);
+                                        if (pointer.child == component and param_type_2 == std.mem.Allocator) {
+                                            old_components[i].deinit(allocator);
                                         }
                                     },
                                     else => {},
@@ -185,20 +185,20 @@ pub fn Archetype(
             }
 
             if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
-                std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(row));
+                std.debug.assert(self.entity_to_row_map.remove(entity));
+                std.debug.assert(self.row_to_entity_map.remove(row));
                 _ = self.entitys.swapRemove(row.value());
             } else {
-                const rowEndEntity = if (self.rowToEntityMap.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
+                const row_end_entity = if (self.row_to_entity_map.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
                     unreachable;
                 };
 
-                try self.entityToRowMap.put(allocator, rowEndEntity, row);
-                try self.rowToEntityMap.put(allocator, row, rowEndEntity);
+                try self.entity_to_row_map.put(allocator, row_end_entity, row);
+                try self.row_to_entity_map.put(allocator, row, row_end_entity);
 
                 _ = self.entitys.swapRemove(row.value());
-                std.debug.assert(self.entityToRowMap.remove(entity));
-                std.debug.assert(self.rowToEntityMap.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
+                std.debug.assert(self.entity_to_row_map.remove(entity));
+                std.debug.assert(self.row_to_entity_map.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
             }
         }
     };
