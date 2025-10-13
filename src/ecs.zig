@@ -180,10 +180,10 @@ pub fn Ecs(comptime templates: []const Template) type {
             });
         },
         entity_to_archetype_map: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
-        unused_entitys: std.ArrayListUnmanaged(EntityPointer),
-        destroyed_entitys: std.ArrayListUnmanaged(EntityType),
+        unused_entitys: std.ArrayList(EntityPointer),
+        destroyed_entitys: std.ArrayList(EntityType),
 
-        singletons: std.ArrayListUnmanaged(struct { ComponentBitset, TagBitset }),
+        singletons: std.ArrayList(struct { ComponentBitset, TagBitset }),
         singleton_to_entity_map: std.AutoHashMapUnmanaged(SingletonType, EntityPointer),
 
         entity_count: u32,
@@ -337,7 +337,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn clearDestroyedEntitys(self: *Self) void {
             for (self.destroyed_entitys.items) |entity| {
-                const archetype_ptr = self.entity_to_archetype_map.get(entity).?;
+                const archetype_ptr = self.entity_to_archetype_map.get(entity) orelse unreachable;
                 inline for (0..self.archetypes.len) |i| {
                     if (i == archetype_ptr.archetype.value()) {
                         self.archetypes[i].remove(entity, self.allocator) catch unreachable;
@@ -451,6 +451,8 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             return error.NoMatchingArchetype;
         }
+
+        // FIXME: REMOVE FROM SINGLETON IF IT DOESN'T MEAT THE REQUIRMENTS.
 
         pub fn removeComponentFromEntity(self: *Self, entity: EntityType, comptime T: type) !void {
             const old_archetype_index, const generation = init: {

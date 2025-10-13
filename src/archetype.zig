@@ -44,7 +44,7 @@ pub fn Archetype(
         tuple_array_list: TupleArrayList(template.components),
         entity_to_row_map: std.AutoHashMapUnmanaged(EntityType, RowType),
         row_to_entity_map: std.AutoHashMapUnmanaged(RowType, EntityType),
-        entitys: std.ArrayListUnmanaged(EntityType),
+        entitys: std.ArrayList(EntityType),
 
         const Self = @This();
         pub const component_bitset: std.bit_set.StaticBitSet(component_count) = ComponentBitset;
@@ -108,14 +108,13 @@ pub fn Archetype(
             try self.tuple_array_list.append(components, allocator);
 
             try self.entitys.append(allocator, entity);
+
             try self.entity_to_row_map.put(allocator, entity, RowType.make(@intCast(self.entitys.items.len - 1)));
             try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity);
         }
 
         pub fn popRemove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !ct.TupleOfItems(template.components) {
-            const row: RowType = if (self.entity_to_row_map.get(entity)) |row| row else {
-                unreachable;
-            };
+            const row: RowType = self.entity_to_row_map.get(entity) orelse unreachable;
 
             const old_components: ct.TupleOfItems(template.components) = init: {
                 const old_components: ct.TupleOfItems(template.components) = self.tuple_array_list.swapRemove(row.value());
@@ -126,27 +125,26 @@ pub fn Archetype(
             if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
                 std.debug.assert(self.entity_to_row_map.remove(entity));
                 std.debug.assert(self.row_to_entity_map.remove(row));
-                _ = self.entitys.swapRemove(row.value());
             } else {
-                const row_end_entity = if (self.row_to_entity_map.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
+                const end_row = RowType.make(@intCast(self.tuple_array_list.count));
+                const row_end_entity = if (self.row_to_entity_map.get(end_row)) |endEntity| endEntity else {
                     unreachable;
                 };
 
                 try self.entity_to_row_map.put(allocator, row_end_entity, row);
                 try self.row_to_entity_map.put(allocator, row, row_end_entity);
 
-                _ = self.entitys.swapRemove(row.value());
                 std.debug.assert(self.entity_to_row_map.remove(entity));
-                std.debug.assert(self.row_to_entity_map.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
+                std.debug.assert(self.row_to_entity_map.remove(end_row));
             }
+
+            _ = self.entitys.swapRemove(row.value());
 
             return old_components;
         }
 
         pub fn remove(self: *Self, entity: EntityType, allocator: std.mem.Allocator) !void {
-            const row: RowType = if (self.entity_to_row_map.get(entity)) |row| row else {
-                unreachable;
-            };
+            const row: RowType = self.entity_to_row_map.get(entity) orelse unreachable;
 
             var old_components = self.tuple_array_list.swapRemove(row.value());
             inline for (template.components, 0..) |component, i| {
@@ -187,19 +185,18 @@ pub fn Archetype(
             if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
                 std.debug.assert(self.entity_to_row_map.remove(entity));
                 std.debug.assert(self.row_to_entity_map.remove(row));
-                _ = self.entitys.swapRemove(row.value());
             } else {
-                const row_end_entity = if (self.row_to_entity_map.get(RowType.make(@intCast(self.entitys.items.len - 1)))) |endEntity| endEntity else {
-                    unreachable;
-                };
+                const end_row = RowType.make(@intCast(self.tuple_array_list.count));
+                const row_end_entity = self.row_to_entity_map.get(end_row) orelse unreachable;
 
                 try self.entity_to_row_map.put(allocator, row_end_entity, row);
                 try self.row_to_entity_map.put(allocator, row, row_end_entity);
 
-                _ = self.entitys.swapRemove(row.value());
                 std.debug.assert(self.entity_to_row_map.remove(entity));
-                std.debug.assert(self.row_to_entity_map.remove(RowType.make(@intCast(self.entitys.items.len - 1))));
+                std.debug.assert(self.row_to_entity_map.remove(end_row));
             }
+
+            _ = self.entitys.swapRemove(row.value());
         }
     };
 }
