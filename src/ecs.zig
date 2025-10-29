@@ -842,6 +842,12 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.EntityNotMatchRequirments;
         }
 
+        pub fn removeSingletonsEntity(self: *Self, singleton: SingletonType) void {
+            if (self.singleton_to_entity_map.get(singleton)) |_| {
+                std.debug.assert(self.singleton_to_entity_map.remove(singleton));
+            }
+        }
+
         pub fn getSingletonsEntity(self: *Self, singleton: SingletonType) ?EntityPointer {
             std.debug.assert(singleton.value() < self.singletons.items.len);
             if (self.singleton_to_entity_map.get(singleton)) |entity| {
