@@ -15,7 +15,7 @@ const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
 pub const Template: type = struct {
     components: []const type = &.{},
-    tags: ?[]const type = null,
+    tags: []const type = &.{},
 
     pub fn hasComponent(self: *const Template, component: type) bool {
         for (self.components) |comp| {
@@ -26,10 +26,8 @@ pub const Template: type = struct {
     }
 
     pub fn hasTag(self: *const Template, tag: type) bool {
-        if (self.tags) |tags| {
-            for (tags) |t| {
-                if (t == tag) return true;
-            }
+        for (self.tags) |t| {
+            if (t == tag) return true;
         }
 
         return false;
@@ -44,12 +42,8 @@ pub const Template: type = struct {
     }
 
     pub fn getTagIndex(self: *const Template, tag: type) usize {
-        if (self.tags) |tags| {
-            for (tags, 0..) |t, i| {
-                if (t == tag) return i;
-            }
-        } else {
-            @compileError("Invalid tag given, " ++ @typeName(tag) ++ ". Template didn't have tags.");
+        for (self.tags, 0..) |t, i| {
+            if (t == tag) return i;
         }
 
         @compileError("Invalid tag given, " ++ @typeName(tag) ++ ". Wasn't in the tag list");
@@ -66,26 +60,23 @@ pub const Template: type = struct {
             return false;
         }
 
-        if (self.tags) |tags| {
-            if (other.tags) |tags2| {
-                if (tags.len != tags2.len) return false;
+        if (self.tags.len != other.tags.len) return false;
 
-                outer: for (tags) |tag| {
-                    for (tags2) |tag2| {
-                        if (tag == tag2) continue :outer;
-                    }
-
-                    return false;
-                }
-            } else {
-                return false;
+        outer: for (self.tags) |tag| {
+            for (other.tags) |tag2| {
+                if (tag == tag2) continue :outer;
             }
-        } else if (other.tags != null) {
+
             return false;
         }
 
         return true;
     }
+};
+
+pub const Filter = struct {
+    include: Template,
+    exclude: Template = .{},
 };
 
 pub const EntityType = enum(u32) {
@@ -158,7 +149,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                     component_types.len,
                     comptimeGetComponentBitset(template.components),
                     tags_types.len,
-                    if (template.tags) |tags| comptimeGetTagBitset(tags) else TagBitset.initEmpty(),
+                    comptimeGetTagBitset(template.tags),
                 );
 
                 newFields[i] = std.builtin.Type.StructField{
@@ -283,7 +274,26 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.MissingEntity;
         }
 
-        pub fn createEntity(self: *Self, comptime template: Template, components: ct.TupleOfItems(template.components)) EntityPointer {
+        fn getComponentsFromTuple(tuple: anytype) []const type {
+            const struct_info: std.builtin.Type.Struct = init: switch (@typeInfo(tuple)) {
+                .@"struct" => |value| {
+                    if (!value.is_tuple and value.fields > 0) @compileError("Components must be in a non empty tuple.");
+                    break :init value;
+                },
+                else => @compileError("Was given " ++ @tagName(tuple) ++ ", expected a non empty tuple."),
+            };
+
+            var components: [struct_info.fields.len]type = undefined;
+            for (0..struct_info.fields.len) |i| {
+                components[i] = struct_info.fields[i].type;
+            }
+
+            return components;
+        }
+
+        pub fn createEntity(self: *Self, components: anytype, tags: []const type) EntityPointer {
+            const template: Template = .{ .components = comptime getComponentsFromTuple(components), .tags = tags };
+
             const new_entity: EntityType, const generation: GenerationType = init: {
                 if (self.unused_entitys.items.len > 0) {
                     const entity_ptr = self.unused_entitys.pop().?;
@@ -295,7 +305,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             };
 
             const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(template.components);
-            const tag_bitset: TagBitset = comptime (if (template.tags) |tags| comptimeGetTagBitset(tags) else .initEmpty());
+            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(template.tags);
 
             const archetype_index: usize = comptime init: {
                 for (self.archetypes, 0..) |archetype, i| {
