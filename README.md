@@ -26,25 +26,21 @@ pub fn main() !void {
 
     defer ecs.deinit();
 
-    const entityPtr = ecs.createEntity(
-        .{ .components = &.{Position} },
+    const entity_ptr = ecs.createEntity(
         .{Position{ .x = 4, .y = 4 }},
     );
 
-    try ecs.addTagToEntity(entityPtr.entity, Tag);
-    if (ecs.entityHasTag(entity.entity, Tag)) {
+    try ecs.addTagToEntity(entity_ptr, Tag);
+    if (ecs.entityHasTag(entity_ptr, Tag)) {
         std.debug.print("Works!\n", .{});
     }
 
-    try ecs.addComponentToEntity(entity.entity, Collider, .{ .x = 1, .y = 0 });
-    if (ecs.entityHasComponent(entity.entity, Collider)) {
+    try ecs.addComponentToEntity(entity_ptr, Collider{ .x = 1, .y = 0 });
+    if (ecs.entityHasComponent(entity_ptr, Collider)) {
         std.debug.print("Works!\n", .{});
     }
 
-    var tupleIterator: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(
-        .{ .components = &.{ Position, Collider } },
-        .{},
-    ).?;
+    var tupleIterator: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(.{.include = .{ .components = &.{ Position, Collider } }}).?;
     defer tupleIterator.deinit();
 
     while (tupleIterator.next()) |components| {
@@ -55,7 +51,7 @@ pub fn main() !void {
         std.debug.assert(components[1].y == 0);
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, null, .{}).?;
+    var iterator: Iterator(Position) = ecs.getIterator(Position, &.{}, .{}).?;
     defer iterator.deinit();
 
     while (iterator.next()) |position| {
