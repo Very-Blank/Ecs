@@ -74,8 +74,14 @@ pub const Template: type = struct {
     }
 };
 
-pub const Filter = struct {
+pub const TupleFilter = struct {
     include: Template,
+    exclude: Template = .{},
+};
+
+pub const Filter = struct {
+    component: type,
+    tags: []const type = &.{},
     exclude: Template = .{},
 };
 
@@ -700,12 +706,12 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getIterator(self: *Self, comptime component: type, comptime tags: []const type, comptime exclude: Template) ?Iterator(component) {
-            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{component});
-            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(tags);
+        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter.component) {
+            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{filter.component});
+            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.tags);
 
-            const exclude_component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(exclude.components);
-            const exclude_tag_bitset: TagBitset = comptime comptimeGetTagBitset(exclude.tags);
+            const exclude_component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(filter.exclude.components);
+            const exclude_tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.exclude.tags);
 
             const matching_archetype_indices: []const usize = comptime init: {
                 var matching_archetype_indices: []usize = &[_]usize{};
@@ -722,7 +728,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 break :init matching_archetype_indices;
             };
 
-            var component_arrays: std.ArrayListUnmanaged([]component) = .empty;
+            var component_arrays: std.ArrayListUnmanaged([]filter.component) = .empty;
             errdefer component_arrays.deinit(self.allocator);
 
             var entitys: std.ArrayListUnmanaged([]EntityPointer) = .empty;
@@ -730,7 +736,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             inline for (matching_archetype_indices) |index| {
                 if (self.archetypes[index].tuple_array_list.count > 0) {
-                    const array = self.archetypes[index].tuple_array_list.getItemArray(component);
+                    const array = self.archetypes[index].tuple_array_list.getItemArray(filter.component);
                     component_arrays.append(self.allocator, array) catch unreachable;
                     entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
                 }
@@ -740,11 +746,11 @@ pub fn Ecs(comptime templates: []const Template) type {
                 return null;
             }
 
-            return Iterator(component).init(component_arrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+            return Iterator(filter.component).init(component_arrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getTupleIterator(self: *Self, comptime filter: Filter) ?TupleIterator(filter.include.components) {
+        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(filter.include.components) {
             const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(filter.include.components);
             const tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.include.tags);
 
@@ -1251,7 +1257,7 @@ test "Iterating over a component" {
         );
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, &.{}, .{}).?;
+    var iterator: Iterator(Position) = ecs.getIterator(.{ .component = Position }).?;
     defer iterator.deinit();
 
     try std.testing.expect(iterator.buffers.len == 3);
@@ -1273,7 +1279,7 @@ test "Iterating over a component" {
         try std.testing.expect(position.y == 2);
     }
 
-    var iterator2: Iterator(Position) = ecs.getIterator(Position, &.{}, .{ .tags = &.{Tag} }).?;
+    var iterator2: Iterator(Position) = ecs.getIterator(.{ .component = Position, .exclude = .{ .tags = &.{Tag} } }).?;
     defer iterator2.deinit();
 
     try std.testing.expect(iterator2.buffers.len == 1);
@@ -1312,7 +1318,7 @@ test "Checking iterator entitys" {
     }
 
     {
-        var iterator: Iterator(Position) = ecs.getIterator(Position, &.{}, .{}).?;
+        var iterator: Iterator(Position) = ecs.getIterator(.{ .component = Position }).?;
         defer iterator.deinit();
 
         var i: u32 = 0;
@@ -1326,7 +1332,7 @@ test "Checking iterator entitys" {
         ecs.destroyEntity(.{ .entity = .make(0), .generation = .make(0) });
         ecs.clearDestroyedEntitys();
 
-        var iterator: Iterator(Position) = ecs.getIterator(Position, &.{}, .{}).?;
+        var iterator: Iterator(Position) = ecs.getIterator(.{ .component = Position }).?;
         defer iterator.deinit();
         if (iterator.next()) |_| {
             try std.testing.expect(iterator.current_entity.entity.value() == 99);
