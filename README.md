@@ -28,6 +28,7 @@ pub fn main() !void {
 
     const entity_ptr = ecs.createEntity(
         .{Position{ .x = 4, .y = 4 }},
+        &.{},
     );
 
     try ecs.addTagToEntity(entity_ptr, Tag);
