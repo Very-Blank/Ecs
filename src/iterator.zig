@@ -1,11 +1,11 @@
 const std = @import("std");
-const EntityType = @import("ecs.zig").EntityType;
+const EntityPointer = @import("ecs.zig").EntityPointer;
 
 pub fn Iterator(comptime T: type) type {
     return struct {
         buffers: [][]T,
-        entities: []const []const EntityType,
-        current_entity: EntityType,
+        entities: []const []const EntityPointer,
+        current_entity: EntityPointer,
         current_index: u32,
         current_buffer: u32,
 
@@ -13,7 +13,7 @@ pub fn Iterator(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn init(buffers: [][]T, entities: []const []const EntityType, allocator: std.mem.Allocator) Self {
+        pub fn init(buffers: [][]T, entities: []const []const EntityPointer, allocator: std.mem.Allocator) Self {
             std.debug.assert(buffers.len > 0);
             std.debug.assert(buffers[0].len > 0);
 
@@ -68,7 +68,7 @@ pub fn Iterator(comptime T: type) type {
 
         /// Returns current entity for components that where called with the last next()
         /// If next() return null and this is called this returns the last valid entity.
-        pub fn getCurrentEntity(self: *Self) EntityType {
+        pub fn getCurrentEntity(self: *Self) EntityPointer {
             return self.current_entity;
         }
     };

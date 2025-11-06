@@ -1,13 +1,13 @@
 const std = @import("std");
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 const TupleOfComponentPtrs = @import("comptimeTypes.zig").TupleOfItemPtrs;
-const EntityType = @import("ecs.zig").EntityType;
+const EntityPointer = @import("ecs.zig").EntityPointer;
 
 pub fn TupleIterator(comptime components: []const type) type {
     return struct {
         tuple_of_buffers: TupleOfBuffers(components),
-        entities: []const []const EntityType,
-        current_entity: EntityType,
+        entities: []const []const EntityPointer,
+        current_entity: EntityPointer,
         current_index: u32,
         current_buffer: u32,
 
@@ -15,7 +15,7 @@ pub fn TupleIterator(comptime components: []const type) type {
 
         const Self = @This();
 
-        pub fn init(tupleOfBuffers: TupleOfBuffers(components), entities: []const []const EntityType, allocator: std.mem.Allocator) Self {
+        pub fn init(tupleOfBuffers: TupleOfBuffers(components), entities: []const []const EntityPointer, allocator: std.mem.Allocator) Self {
             std.debug.assert(tupleOfBuffers.len > 0);
             inline for (0..components.len) |i| {
                 std.debug.assert(tupleOfBuffers[i].len > 0);
@@ -80,7 +80,7 @@ pub fn TupleIterator(comptime components: []const type) type {
 
         /// Returns current entity for components that where called with the last next()
         /// If next() return null and this is called this returns the last valid entity.
-        pub fn getCurrentEntity(self: *Self) EntityType {
+        pub fn getCurrentEntity(self: *Self) EntityPointer {
             return self.current_entity;
         }
     };
