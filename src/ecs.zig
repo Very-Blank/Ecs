@@ -755,7 +755,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             const tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.include.tags);
 
             const exclude_component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(filter.exclude.components);
-            const exclude_tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.exclude.components);
+            const exclude_tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.exclude.tags);
 
             const matching_archetype_indices: []const usize = comptime init: {
                 var matching_archetype_indices: []usize = &[_]usize{};
