@@ -51,7 +51,7 @@ pub fn main() !void {
         std.debug.assert(components[1].y == 0);
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(Position, &.{}, .{}).?;
+    var iterator: Iterator(Position) = ecs.getIterator(.{.component = Position}).?;
     defer iterator.deinit();
 
     while (iterator.next()) |position| {
