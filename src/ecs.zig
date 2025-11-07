@@ -1,8 +1,6 @@
 const std = @import("std");
 const ct = @import("comptimeTypes.zig");
 
-const ULandType = @import("uLandType.zig").ULandType;
-
 const Archetype = @import("archetype.zig").Archetype;
 const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
@@ -188,35 +186,34 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         const Self = @This();
 
-        pub const component_types: []const ULandType = init: {
-            var i_component_types: []ULandType = &[_]ULandType{};
+        pub const component_types: []const type = init: {
+            var i_component_types: []type = &.{};
             for (templates, 0..) |template, i| {
                 if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ ct.itoa(i) ++ ".");
+
                 outer: for (template.components, 0..) |component, j| {
                     if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ ct.itoa(i) ++ ", component index: " ++ ct.itoa(j));
-                    const uLandType = ULandType.get(component);
-                    for (i_component_types) |existing_ULandType| {
-                        if (uLandType.type == existing_ULandType.type) continue :outer;
+                    for (i_component_types) |existing_component| {
+                        if (existing_component == component) continue :outer;
                     }
 
-                    i_component_types = @constCast(i_component_types ++ .{uLandType});
+                    i_component_types = @constCast(i_component_types ++ .{component});
                 }
             }
 
             break :init i_component_types;
         };
 
-        pub const tags_types: []const ULandType = init: {
-            var i_tags_types: []ULandType = &[_]ULandType{};
+        pub const tags_types: []const type = init: {
+            var i_tags_types: []type = &.{};
             for (templates, 0..) |template, i| {
                 outer: for (template.tags, 0..) |tag, j| {
                     if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ ct.itoa(i) ++ ", tag index: " ++ ct.itoa(j));
-                    const uLandType = ULandType.get(tag);
-                    for (i_tags_types) |existing_ULandType| {
-                        if (uLandType.type == existing_ULandType.type) continue :outer;
+                    for (i_tags_types) |existing_tag| {
+                        if (existing_tag == tag) continue :outer;
                     }
 
-                    i_tags_types = @constCast(i_tags_types ++ .{uLandType});
+                    i_tags_types = @constCast(i_tags_types ++ .{tag});
                 }
             }
 
@@ -612,9 +609,8 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn comptimeGetComponentBitset(comptime components: []const type) ComponentBitset {
             var bitset: ComponentBitset = .initEmpty();
             outer: for (components) |component| {
-                const u_land_type = ULandType.get(component);
                 for (component_types, 0..) |existing_component, i| {
-                    if (u_land_type.eql(existing_component)) {
+                    if (existing_component == component) {
                         if (bitset.isSet(i)) {
                             @compileError("Components had two of the same component " ++ @typeName(component) ++ ", Which is not allowed.");
                         }
@@ -631,9 +627,8 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn comptimeGetComponentId(comptime component: type) usize {
-            const u_land_type = ULandType.get(component);
             for (component_types, 0..) |existing_component, i| {
-                if (u_land_type.eql(existing_component)) {
+                if (existing_component == component) {
                     return i;
                 }
             }
@@ -644,9 +639,8 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn comptimeGetTagBitset(comptime tags: []const type) TagBitset {
             var bitset: TagBitset = .initEmpty();
             outer: for (tags) |tag| {
-                const u_land_type = ULandType.get(tag);
                 for (tags_types, 0..) |existing_component, i| {
-                    if (u_land_type.eql(existing_component)) {
+                    if (tag == existing_component) {
                         if (bitset.isSet(i)) {
                             @compileError("Tags had two of the same tag " ++ @typeName(tag) ++ ", Which is not allowed.");
                         }
@@ -663,9 +657,8 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn comptimeGetTagId(comptime tag: type) usize {
-            const u_land_type = ULandType.get(tag);
             for (tags_types, 0..) |existing_component, i| {
-                if (u_land_type.eql(existing_component)) {
+                if (existing_component == tag) {
                     return i;
                 }
             }
