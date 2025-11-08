@@ -41,8 +41,7 @@ pub fn main() !void {
         std.debug.print("Works!\n", .{});
     }
 
-    var tupleIterator: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(.{.include = .{ .components = &.{ Position, Collider } }}).?;
-    defer tupleIterator.deinit();
+    var tupleIterator = ecs.getTupleIterator(.{.include = .{ .components = &.{ Position, Collider } }}).?;
 
     while (tupleIterator.next()) |components| {
         std.debug.assert(components[0].x == 4);
@@ -52,8 +51,7 @@ pub fn main() !void {
         std.debug.assert(components[1].y == 0);
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(.{.component = Position}).?;
-    defer iterator.deinit();
+    var iterator = ecs.getIterator(.{.component = Position}).?;
 
     while (iterator.next()) |position| {
         std.debug.assert(position.x == 4);
