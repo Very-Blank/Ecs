@@ -3,45 +3,27 @@ const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 const TupleOfComponentPtrs = @import("comptimeTypes.zig").TupleOfItemPtrs;
 const EntityPointer = @import("ecs.zig").EntityPointer;
 
-pub fn TupleIterator(comptime components: []const type) type {
+pub fn TupleIterator(comptime components: []const type, comptime size: usize) type {
     return struct {
-        tuple_of_buffers: TupleOfBuffers(components),
-        entities: []const []const EntityPointer,
+        tuple_of_buffers: TupleOfBuffers(components, size),
+        entities: [size][]const EntityPointer,
+        buffer_len: u32,
+
         current_entity: EntityPointer,
         current_index: u32,
         current_buffer: u32,
 
-        allocator: std.mem.Allocator,
-
         const Self = @This();
 
-        pub fn init(tupleOfBuffers: TupleOfBuffers(components), entities: []const []const EntityPointer, allocator: std.mem.Allocator) Self {
-            std.debug.assert(tupleOfBuffers.len > 0);
-            inline for (0..components.len) |i| {
-                std.debug.assert(tupleOfBuffers[i].len > 0);
-                std.debug.assert(tupleOfBuffers[i][0].len > 0);
-            }
-
+        pub fn init(tupleOfBuffers: TupleOfBuffers(components, size), entities: [size][]const EntityPointer, buffer_len: u32) Self {
             return .{
                 .tuple_of_buffers = tupleOfBuffers,
                 .entities = entities,
+                .buffer_len = buffer_len,
                 .current_entity = entities[0][0],
                 .current_index = 0,
                 .current_buffer = 0,
-                .allocator = allocator,
             };
-        }
-
-        // Frees the array that holds the buffers, doesn't touch the actual buffers.
-        pub fn deinit(self: *Self) void {
-            inline for (0..components.len) |i| {
-                self.allocator.free(self.tuple_of_buffers[i]);
-            }
-
-            self.tuple_of_buffers = undefined;
-
-            self.allocator.free(self.entities);
-            self.entities = undefined;
         }
 
         pub fn reset(self: *Self) void {
@@ -52,7 +34,7 @@ pub fn TupleIterator(comptime components: []const type) type {
         /// Returns the next value in the buffers and whether or not there is next value.
         /// If there is no next value next() will return the last element in the buffers.
         pub fn next(self: *Self) ?TupleOfComponentPtrs(components) {
-            if (self.tuple_of_buffers[0].len <= self.current_buffer) {
+            if (self.buffer_len <= self.current_buffer) {
                 return null;
             }
 
@@ -75,7 +57,7 @@ pub fn TupleIterator(comptime components: []const type) type {
         }
 
         pub fn isNext(self: *Self) bool {
-            return self.current_buffer < self.tuple_of_buffers[0].len;
+            return self.current_buffer < self.buffer_len;
         }
 
         /// Returns current entity for components that where called with the last next()

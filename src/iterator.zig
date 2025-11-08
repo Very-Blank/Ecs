@@ -1,38 +1,32 @@
 const std = @import("std");
 const EntityPointer = @import("ecs.zig").EntityPointer;
 
-pub fn Iterator(comptime T: type) type {
+pub fn Iterator(comptime T: type, comptime size: usize) type {
     return struct {
-        buffers: [][]T,
-        entities: []const []const EntityPointer,
+        buffers: [size][]T,
+        entities: [size][]const EntityPointer,
+        buffer_len: u32,
+
         current_entity: EntityPointer,
         current_index: u32,
         current_buffer: u32,
 
-        allocator: std.mem.Allocator,
-
         const Self = @This();
 
-        pub fn init(buffers: [][]T, entities: []const []const EntityPointer, allocator: std.mem.Allocator) Self {
-            std.debug.assert(buffers.len > 0);
-            std.debug.assert(buffers[0].len > 0);
+        pub fn init(buffers: [size][]T, entities: [size][]const EntityPointer, buffer_len: u32) Self {
+            std.debug.assert(buffer_len > 0);
+            for (0..buffer_len) |i| {
+                std.debug.assert(buffers[i].len > 0);
+            }
 
             return .{
                 .buffers = buffers,
                 .entities = entities,
+                .buffer_len = buffer_len,
                 .current_index = 0,
                 .current_entity = entities[0][0],
                 .current_buffer = 0,
-                .allocator = allocator,
             };
-        }
-
-        // Frees the array that holds the buffers, doesn't touch the actual buffers.
-        pub fn deinit(self: *Self) void {
-            self.allocator.free(self.buffers);
-            self.buffers = undefined;
-            self.allocator.free(self.entities);
-            self.entities = undefined;
         }
 
         pub fn reset(self: *Self) void {
@@ -43,7 +37,7 @@ pub fn Iterator(comptime T: type) type {
         /// Returns the next value in the buffers and whether or not there is next value.
         /// If there is no next value next() will return the last element in the buffers.
         pub fn next(self: *Self) ?*T {
-            if (self.buffers.len <= self.current_buffer) {
+            if (self.buffer_len <= self.current_buffer) {
                 return null;
             }
 
@@ -63,7 +57,7 @@ pub fn Iterator(comptime T: type) type {
         }
 
         pub fn isNext(self: *Self) bool {
-            return self.current_buffer < self.buffers.len;
+            return self.current_buffer < self.buffer_len;
         }
 
         /// Returns current entity for components that where called with the last next()

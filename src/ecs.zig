@@ -8,7 +8,6 @@ const RowType = @import("archetype.zig").RowType;
 const Iterator = @import("iterator.zig").Iterator;
 const TupleIterator = @import("tupleIterator.zig").TupleIterator;
 
-const TupleOfSliceArrayLists = @import("comptimeTypes.zig").TupleOfSliceArrayLists;
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
 pub const Template: type = struct {
@@ -699,14 +698,36 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter.component) {
-            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{filter.component});
-            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.tags);
+        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(
+            filter.component,
+            counter: {
+                const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
+                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
 
-            const exclude_component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(filter.exclude.components);
-            const exclude_tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.exclude.tags);
+                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
+                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
 
+                var matching_archetype_count: usize = 0;
+                for (self.archetypes) |archetype| {
+                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                        @TypeOf(archetype).component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
+                        @TypeOf(archetype).tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
+                    {
+                        matching_archetype_count += 1;
+                    }
+                }
+                if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+                break :counter matching_archetype_count;
+            },
+        ) {
             const matching_archetype_indices: []const usize = comptime init: {
+                const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
+                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
+
+                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
+                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
+
                 var matching_archetype_indices: []usize = &[_]usize{};
                 for (self.archetypes, 0..) |archetype, i| {
                     if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
@@ -721,36 +742,56 @@ pub fn Ecs(comptime templates: []const Template) type {
                 break :init matching_archetype_indices;
             };
 
-            var component_arrays: std.ArrayListUnmanaged([]filter.component) = .empty;
-            errdefer component_arrays.deinit(self.allocator);
-
-            var entitys: std.ArrayListUnmanaged([]EntityPointer) = .empty;
-            errdefer entitys.deinit(self.allocator);
+            var component_arrays: [matching_archetype_indices.len][]filter.component = undefined;
+            var entitys: [matching_archetype_indices.len][]EntityPointer = undefined;
+            var buffer_len: usize = 0;
 
             inline for (matching_archetype_indices) |index| {
                 if (self.archetypes[index].tuple_array_list.count > 0) {
-                    const array = self.archetypes[index].tuple_array_list.getItemArray(filter.component);
-                    component_arrays.append(self.allocator, array) catch unreachable;
-                    entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
+                    component_arrays[buffer_len] = self.archetypes[index].tuple_array_list.getItemArray(filter.component);
+                    entitys[buffer_len] = self.archetypes[index].entitys.items;
+                    buffer_len += 1;
                 }
             }
 
-            if (component_arrays.items.len == 0) {
+            if (buffer_len == 0) {
                 return null;
             }
 
-            return Iterator(filter.component).init(component_arrays.toOwnedSlice(self.allocator) catch unreachable, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+            return Iterator(filter.component, matching_archetype_indices.len).init(component_arrays, entitys, @intCast(buffer_len));
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(filter.include.components) {
-            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(filter.include.components);
-            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.include.tags);
+        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(
+            filter.include.components,
+            counter: {
+                const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
+                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
 
-            const exclude_component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(filter.exclude.components);
-            const exclude_tag_bitset: TagBitset = comptime comptimeGetTagBitset(filter.exclude.tags);
+                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
+                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
 
+                var matching_archetype_count: usize = 0;
+                for (self.archetypes) |archetype| {
+                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                        @TypeOf(archetype).component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
+                        @TypeOf(archetype).tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
+                    {
+                        matching_archetype_count += 1;
+                    }
+                }
+                if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+                break :counter matching_archetype_count;
+            },
+        ) {
             const matching_archetype_indices: []const usize = comptime init: {
+                const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
+                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
+
+                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
+                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
+
                 var matching_archetype_indices: []usize = &[_]usize{};
                 for (self.archetypes, 0..) |archetype, i| {
                     if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
@@ -765,54 +806,26 @@ pub fn Ecs(comptime templates: []const Template) type {
                 break :init matching_archetype_indices;
             };
 
-            var tuple_of_arraylist: TupleOfSliceArrayLists(filter.include.components) = init: {
-                var tuple_of_arraylist: TupleOfSliceArrayLists(filter.include.components) = undefined;
-                inline for (0..filter.include.components.len) |i| {
-                    tuple_of_arraylist[i] = .empty;
-                }
-
-                break :init tuple_of_arraylist;
-            };
-
-            errdefer {
-                inline for (0..tuple_of_arraylist.len) |i| {
-                    tuple_of_arraylist[i].deinit(self.allocator);
-                }
-            }
-
-            var entitys: std.ArrayListUnmanaged([]EntityPointer) = .empty;
-            errdefer entitys.deinit(self.allocator);
+            var tuple_of_buffers: TupleOfBuffers(filter.include.components, matching_archetype_indices.len) = undefined;
+            var entitys: [matching_archetype_indices.len][]EntityPointer = undefined;
+            var buffer_len: usize = 0;
 
             inline for (matching_archetype_indices) |index| {
-                inline for (filter.include.components, 0..) |component, j| {
-                    if (self.archetypes[index].tuple_array_list.count > 0) {
-                        const array = self.archetypes[index].tuple_array_list.getItemArray(component);
-                        tuple_of_arraylist[j].append(self.allocator, array) catch unreachable;
-                        if (comptime j == 0) entitys.append(self.allocator, self.archetypes[index].entitys.items) catch unreachable;
+                if (self.archetypes[index].tuple_array_list.count > 0) {
+                    entitys[buffer_len] = self.archetypes[index].entitys.items;
+                    inline for (filter.include.components, 0..) |component, j| {
+                        tuple_of_buffers[j][buffer_len] = self.archetypes[index].tuple_array_list.getItemArray(component);
                     }
+
+                    buffer_len += 1;
                 }
             }
 
-            if (tuple_of_arraylist[0].items.len == 0) {
+            if (buffer_len == 0) {
                 return null;
             }
 
-            const tuple_of_buffers: TupleOfBuffers(filter.include.components) = init: {
-                var tuple_of_buffers: TupleOfBuffers(filter.include.components) = undefined;
-                inline for (0..filter.include.components.len) |i| {
-                    tuple_of_buffers[i] = tuple_of_arraylist[i].toOwnedSlice(self.allocator) catch unreachable;
-                }
-
-                break :init tuple_of_buffers;
-            };
-
-            errdefer {
-                inline for (tuple_of_buffers) |buffer| {
-                    self.allocator.free(buffer);
-                }
-            }
-
-            return TupleIterator(filter.include.components).init(tuple_of_buffers, entitys.toOwnedSlice(self.allocator) catch unreachable, self.allocator);
+            return TupleIterator(filter.include.components, matching_archetype_indices.len).init(tuple_of_buffers, entitys, @intCast(buffer_len));
         }
 
         pub fn createSingleton(self: *Self, requirements: Template) SingletonType {
@@ -1250,8 +1263,7 @@ test "Iterating over a component" {
         );
     }
 
-    var iterator: Iterator(Position) = ecs.getIterator(.{ .component = Position }).?;
-    defer iterator.deinit();
+    var iterator = ecs.getIterator(.{ .component = Position }).?;
 
     try std.testing.expect(iterator.buffers.len == 3);
     try std.testing.expect(iterator.buffers[0].len == 100);
@@ -1272,8 +1284,7 @@ test "Iterating over a component" {
         try std.testing.expect(position.y == 2);
     }
 
-    var iterator2: Iterator(Position) = ecs.getIterator(.{ .component = Position, .exclude = .{ .tags = &.{Tag} } }).?;
-    defer iterator2.deinit();
+    var iterator2 = ecs.getIterator(.{ .component = Position, .exclude = .{ .tags = &.{Tag} } }).?;
 
     try std.testing.expect(iterator2.buffers.len == 1);
     try std.testing.expect(iterator2.buffers[0].len == 100);
@@ -1311,8 +1322,7 @@ test "Checking iterator entitys" {
     }
 
     {
-        var iterator: Iterator(Position) = ecs.getIterator(.{ .component = Position }).?;
-        defer iterator.deinit();
+        var iterator = ecs.getIterator(.{ .component = Position }).?;
 
         var i: u32 = 0;
         while (iterator.next()) |_| {
@@ -1325,8 +1335,8 @@ test "Checking iterator entitys" {
         ecs.destroyEntity(.{ .entity = .make(0), .generation = .make(0) });
         ecs.clearDestroyedEntitys();
 
-        var iterator: Iterator(Position) = ecs.getIterator(.{ .component = Position }).?;
-        defer iterator.deinit();
+        var iterator = ecs.getIterator(.{ .component = Position }).?;
+
         if (iterator.next()) |_| {
             try std.testing.expect(iterator.current_entity.entity.value() == 99);
         } else {
@@ -1371,8 +1381,7 @@ test "Iterating over multiple components" {
         );
     }
 
-    var iterator: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(.{ .include = .{ .components = &.{ Position, Collider } } }).?;
-    defer iterator.deinit();
+    var iterator = ecs.getTupleIterator(.{ .include = .{ .components = &.{ Position, Collider } } }).?;
 
     try std.testing.expect(iterator.tuple_of_buffers[0].len == 1);
     try std.testing.expect(iterator.tuple_of_buffers[0][0].len == 100);
@@ -1384,10 +1393,9 @@ test "Iterating over multiple components" {
         components[0].y = 7;
     }
 
-    var iterator2: TupleIterator(&.{ Position, Collider }) = ecs.getTupleIterator(.{ .include = .{ .components = &.{ Position, Collider } } }).?;
-    defer iterator2.deinit();
+    var iterator2 = ecs.getTupleIterator(.{ .include = .{ .components = &.{ Position, Collider } } }).?;
 
-    while (iterator.next()) |components| {
+    while (iterator2.next()) |components| {
         try std.testing.expect(components[0].x == 7);
         try std.testing.expect(components[0].y == 7);
     }

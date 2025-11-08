@@ -16,60 +16,6 @@ pub fn itoa(comptime value: anytype) [:0]const u8 {
     return string;
 }
 
-pub fn TupleOfArrayLists(components: []const type) type {
-    var new_fields: [components.len]std.builtin.Type.StructField = init: {
-        var new_fields: [components.len]std.builtin.Type.StructField = undefined;
-        for (components, 0..) |component, i| {
-            if (@sizeOf(component) == 0) @compileError("Tuple of arraylists can't store a ZST, was given type " ++ @typeName(component) ++ ".");
-            new_fields[i] = std.builtin.Type.StructField{
-                .name = itoa(i),
-                .type = std.ArrayListUnmanaged(component),
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(std.ArrayListUnmanaged(component)),
-            };
-        }
-
-        break :init new_fields;
-    };
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &new_fields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
-    });
-}
-
-pub fn TupleOfSliceArrayLists(components: []const type) type {
-    var new_fields: [components.len]std.builtin.Type.StructField = init: {
-        var new_fields: [components.len]std.builtin.Type.StructField = undefined;
-        for (components, 0..) |component, i| {
-            if (@sizeOf(component) == 0) @compileError("Tuple of arraylists can't store a ZST, was given type " ++ @typeName(component) ++ ".");
-            new_fields[i] = std.builtin.Type.StructField{
-                .name = itoa(i),
-                .type = std.ArrayListUnmanaged([]component),
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf(std.ArrayListUnmanaged([]component)),
-            };
-        }
-
-        break :init new_fields;
-    };
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &new_fields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
-    });
-}
-
 pub fn TupleOfItems(items: []const type) type {
     const new_fields: [items.len]std.builtin.Type.StructField = init: {
         var new_fields: [items.len]std.builtin.Type.StructField = undefined;
@@ -97,7 +43,7 @@ pub fn TupleOfItems(items: []const type) type {
     });
 }
 
-pub fn TupleOfBuffers(components: []const type) type {
+pub fn TupleOfBuffers(components: []const type, buffer_len: usize) type {
     const new_fields: [components.len]std.builtin.Type.StructField = init: {
         var new_fields: [components.len]std.builtin.Type.StructField = undefined;
 
@@ -105,10 +51,10 @@ pub fn TupleOfBuffers(components: []const type) type {
             if (@sizeOf(component) == 0) @compileError("Tuple of buffers can't store a ZST, was given type " ++ @typeName(component) ++ ".");
             new_fields[i] = std.builtin.Type.StructField{
                 .name = itoa(i),
-                .type = [][]component,
+                .type = [buffer_len][]component,
                 .default_value_ptr = null,
                 .is_comptime = false,
-                .alignment = @alignOf([][]component),
+                .alignment = @alignOf([buffer_len][]component),
             };
         }
 
