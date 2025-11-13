@@ -5,8 +5,8 @@ const Archetype = @import("archetype.zig").Archetype;
 const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
 
-const Iterator = @import("iterator.zig").Iterator;
-const TupleIterator = @import("tupleIterator.zig").TupleIterator;
+const GenericIterator = @import("iterator.zig").Iterator;
+const GenericTupleIterator = @import("tupleIterator.zig").TupleIterator;
 
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
@@ -81,6 +81,39 @@ pub const Filter = struct {
     tags: []const type = &.{},
     exclude: Template = .{},
 };
+
+pub fn NonExhaustiveEnum(comptime T: type, comptime Unique: type) type {
+    ok: {
+        @"error": {
+            switch (@typeInfo(T)) {
+                .int => |info| if (info.signedness != .unsigned) break :@"error",
+                else => break :@"error",
+            }
+
+            switch (@typeInfo(Unique)) {
+                .@"opaque" => break :ok,
+                else => break :@"error",
+            }
+        }
+
+        @compileError("Unexpected type was given: " ++ @typeName(T) ++ ", expected an unsiged integer.");
+    }
+
+    return enum(T) {
+        _,
+
+        const Self = @This();
+        const _unique = Unique;
+
+        pub inline fn make(int: T) Self {
+            return @enumFromInt(int);
+        }
+
+        pub inline fn value(@"enum": Self) T {
+            return @intFromEnum(@"enum");
+        }
+    };
+}
 
 pub const EntityType = enum(u32) {
     _,
@@ -697,30 +730,34 @@ pub fn Ecs(comptime templates: []const Template) type {
             return &self.archetypes[archetype_index];
         }
 
-        /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(
-            filter.component,
-            counter: {
-                const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
-                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
+        pub fn Iterator(filter: Filter) type {
+            return GenericIterator(
+                filter.component,
+                counter: {
+                    const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
+                    const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
 
-                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
-                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
+                    const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
+                    const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
 
-                var matching_archetype_count: usize = 0;
-                for (self.archetypes) |archetype| {
-                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                        @TypeOf(archetype).component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
-                    {
-                        matching_archetype_count += 1;
+                    var matching_archetype_count: usize = 0;
+                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
+                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
+                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
+                        {
+                            matching_archetype_count += 1;
+                        }
                     }
-                }
-                if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-                break :counter matching_archetype_count;
-            },
-        ) {
+                    if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+                    break :counter matching_archetype_count;
+                },
+            );
+        }
+
+        /// Destroying or adding entity will possibly make iterator's pointers undefined.
+        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter) {
             const matching_archetype_indices: []const usize = comptime init: {
                 const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
                 const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
@@ -758,33 +795,37 @@ pub fn Ecs(comptime templates: []const Template) type {
                 return null;
             }
 
-            return Iterator(filter.component, matching_archetype_indices.len).init(component_arrays, entitys, @intCast(buffer_len));
+            return .init(component_arrays, entitys, @intCast(buffer_len));
+        }
+
+        pub fn TupleIterator(filter: TupleFilter) type {
+            return GenericTupleIterator(
+                filter.include.components,
+                counter: {
+                    const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
+                    const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
+
+                    const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
+                    const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
+
+                    var matching_archetype_count: usize = 0;
+                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
+                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
+                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
+                        {
+                            matching_archetype_count += 1;
+                        }
+                    }
+                    if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+                    break :counter matching_archetype_count;
+                },
+            );
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(
-            filter.include.components,
-            counter: {
-                const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
-                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
-
-                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
-                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
-
-                var matching_archetype_count: usize = 0;
-                for (self.archetypes) |archetype| {
-                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                        @TypeOf(archetype).component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
-                    {
-                        matching_archetype_count += 1;
-                    }
-                }
-                if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-                break :counter matching_archetype_count;
-            },
-        ) {
+        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator {
             const matching_archetype_indices: []const usize = comptime init: {
                 const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
                 const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
@@ -825,7 +866,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 return null;
             }
 
-            return TupleIterator(filter.include.components, matching_archetype_indices.len).init(tuple_of_buffers, entitys, @intCast(buffer_len));
+            return GenericTupleIterator(filter.include.components, matching_archetype_indices.len).init(tuple_of_buffers, entitys, @intCast(buffer_len));
         }
 
         pub fn createSingleton(self: *Self, requirements: Template) SingletonType {
