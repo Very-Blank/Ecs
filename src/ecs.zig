@@ -169,9 +169,34 @@ pub fn Ecs(comptime templates: []const Template) type {
     }
 
     // FIXME: Remove bad templates maybe?
-    for (templates, 1..) |template, i| {
-        for (i..templates.len) |j| {
+    // NEEEDS MORE CHECKS
+    for (templates, 0..) |template, i| {
+        for (i + 1..templates.len) |j| {
             if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ ct.itoa(i) ++ ", template two index: " ++ ct.itoa(j));
+        }
+    }
+
+    for (templates, 0..) |template, i| {
+        if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ ct.itoa(i) ++ ".");
+
+        for (0..template.components.len) |j| {
+            if (@sizeOf(template.components[j]) == 0)
+                @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ ct.itoa(j) ++ ", component: " ++ @typeName(template.components[j]));
+
+            for (j + 1..template.components.len) |k| {
+                if (template.components[i] == template.components[k])
+                    @compileError("Template had two of the same component. Template index: " ++ ct.itoa(i) ++ ", component: " ++ @typeName(template.components[j]));
+            }
+        }
+
+        for (0..template.tags.len) |j| {
+            if (@sizeOf(template.tags[j]) != 0)
+                @compileError("Templates tag wasn't a ZST, which is not allowed. Template index: " ++ ct.itoa(j) ++ ", tag: " ++ @typeName(template.tags[j]));
+
+            for (j + 1..template.tags.len) |k| {
+                if (template.tags[i] == template.tags[k])
+                    @compileError("Template had two of the same tag. Template index: " ++ ct.itoa(i) ++ ", tag: " ++ @typeName(template.tags[j]));
+            }
         }
     }
 
@@ -219,22 +244,55 @@ pub fn Ecs(comptime templates: []const Template) type {
         const Self = @This();
 
         pub const ResourceRegistry = struct {
-            pub const Components = struct {
-                pub const component_types: []const type = init: {
-                    var i_component_types: []type = &.{};
-                    for (templates, 0..) |template, i| {
-                        if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ ct.itoa(i) ++ ".");
+            fn getUniqueTypeCount(comptime field: []const u8) usize {
+                var count: usize = 0;
 
-                        outer: for (template.components, 0..) |component, j| {
-                            if (@sizeOf(component) == 0) @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ ct.itoa(i) ++ ", component index: " ++ ct.itoa(j));
-                            for (i_component_types) |existing_component| {
-                                if (existing_component == component) continue :outer;
+                for (templates) |template| {
+                    count += @field(template, field).len;
+                }
+
+                for (templates, 0..) |template, i| {
+                    item_iterator: for (@field(template, field)) |new_item| {
+                        for (0..i) |j| {
+                            for (@field(templates[j], field)) |old_item| {
+                                if (old_item == new_item) continue :item_iterator;
+                            }
+                        }
+
+                        // NOTE: Each template should only have one of each component or tag.
+                        next_template: for (i + 1..templates.len) |j| {
+                            for (@field(templates[j], field)) |next_item| {
+                                if (new_item == next_item) {
+                                    count -= 1;
+                                    continue :next_template;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                return count;
+            }
+
+            pub const Components = struct {
+                const components_len = getUniqueTypeCount("components");
+
+                pub const component_types: [components_len]type = init: {
+                    var i_component_types: [components_len]type = undefined;
+                    var i: usize = 0;
+
+                    for (templates) |template| {
+                        inner: for (template.components) |component| {
+                            for (0..i) |j| {
+                                if (i_component_types[j] == component) continue :inner;
                             }
 
-                            i_component_types = @constCast(i_component_types ++ .{component});
+                            i_component_types[i] = component;
+                            i += 1;
                         }
                     }
 
+                    if (i != i_component_types) @compileError("The calculated count of unique tags was incorrect.");
                     break :init i_component_types;
                 };
 
@@ -272,26 +330,32 @@ pub fn Ecs(comptime templates: []const Template) type {
             };
 
             pub const Tags = struct {
-                pub const tags_types: []const type = init: {
-                    var i_tags_types: []type = &.{};
-                    for (templates, 0..) |template, i| {
-                        outer: for (template.tags, 0..) |tag, j| {
-                            if (@sizeOf(tag) != 0) @compileError("Template tag wasn't a ZST, which is not allowed. Template index: " ++ ct.itoa(i) ++ ", tag index: " ++ ct.itoa(j));
-                            for (i_tags_types) |existing_tag| {
-                                if (existing_tag == tag) continue :outer;
+                const tags_len = getUniqueTypeCount("tags");
+
+                pub const tag_types: [tags_len]type = init: {
+                    var i_tag_types: [tags_len]type = undefined;
+                    var i: usize = 0;
+
+                    for (templates) |template| {
+                        inner: for (template.components) |component| {
+                            for (0..i) |j| {
+                                if (i_tag_types[j] == component) continue :inner;
                             }
 
-                            i_tags_types = @constCast(i_tags_types ++ .{tag});
+                            i_tag_types[i] = component;
+                            i += 1;
                         }
                     }
 
-                    break :init i_tags_types;
+                    if (i != tags_len) @compileError("The calculated count of unique tags was incorrect.");
+
+                    break :init i_tag_types;
                 };
 
                 pub fn getBitset(comptime tags: []const type) TagBitset {
                     var bitset: TagBitset = .initEmpty();
                     outer: for (tags) |tag| {
-                        for (tags_types, 0..) |existing_component, i| {
+                        for (tag_types, 0..) |existing_component, i| {
                             if (tag == existing_component) {
                                 if (bitset.isSet(i)) {
                                     @compileError("Tags had two of the same tag " ++ @typeName(tag) ++ ", Which is not allowed.");
@@ -309,7 +373,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 }
 
                 pub fn getId(comptime tag: type) usize {
-                    for (tags_types, 0..) |existing_component, i| {
+                    for (tag_types, 0..) |existing_component, i| {
                         if (existing_component == tag) {
                             return i;
                         }
@@ -318,7 +382,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                     @compileError("Was given a tag " ++ @typeName(tag) ++ ", that wasn't known by the ECS.");
                 }
 
-                pub const TagBitset = std.bit_set.StaticBitSet(tags_types.len);
+                pub const TagBitset = std.bit_set.StaticBitSet(tag_types.len);
             };
 
             pub fn getExactArchetypeIndex(template: Template) usize {
@@ -334,7 +398,81 @@ pub fn Ecs(comptime templates: []const Template) type {
                 @compileError("Supplied template didn't have a corresponding archetype.");
             }
 
-            pub fn getMatchingArchetypeIndices(include_components: ) []usize {}
+            pub fn getMatchingArchetypeIndexCount(
+                include_components: []const type,
+                include_tags: []const type,
+                exclude_components: []const type,
+                exclude_tags: []const type,
+            ) usize {
+                const component_bitset: Components.ComponentBitset = Components.getBitset(include_components);
+                const tag_bitset: Tags.TagBitset = Tags.getBitset(include_tags);
+
+                const exclude_component_bitset: Components.ComponentBitset = Components.getBitset(exclude_components);
+                const exclude_tag_bitset: Tags.TagBitset = Tags.getBitset(exclude_tags);
+
+                var matching_archetype_count: usize = 0;
+                for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
+                    if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                        archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                        archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(Components.ComponentBitset.initEmpty()) and
+                        archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(Tags.TagBitset.initEmpty()))
+                    {
+                        matching_archetype_count += 1;
+                    }
+                }
+
+                if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+
+                return matching_archetype_count;
+            }
+
+            pub fn getMatchingArchetypeIndices(
+                include_components: []const type,
+                include_tags: []const type,
+                exclude_components: []const type,
+                exclude_tags: []const type,
+            ) [getMatchingArchetypeIndexCount(include_components, include_tags, exclude_tags, include_components)]usize {
+                const component_bitset: Components.ComponentBitset = Components.getBitset(include_components);
+                const tag_bitset: Tags.TagBitset = Tags.getBitset(include_tags);
+
+                const exclude_component_bitset: Components.ComponentBitset = Components.getBitset(exclude_components);
+                const exclude_tag_bitset: Tags.TagBitset = Tags.getBitset(exclude_tags);
+
+                const matching_archetype_count: usize = init: {
+                    var matching_archetype_count = 0;
+                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
+                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(Components.ComponentBitset.initEmpty()) and
+                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(Tags.TagBitset.initEmpty()))
+                        {
+                            matching_archetype_count += 1;
+                        }
+                    }
+
+                    if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+
+                    break :init matching_archetype_count;
+                };
+
+                return init: {
+                    var archetype_indices: [matching_archetype_count]usize = undefined;
+                    var i: usize = 0;
+
+                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields, 0..) |archetype_field, j| {
+                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
+                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(Components.ComponentBitset.initEmpty()) and
+                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(Tags.TagBitset.initEmpty()))
+                        {
+                            archetype_indices[i] = j;
+                            i += 1;
+                        }
+                    }
+
+                    break :init archetype_indices;
+                };
+            }
         };
 
         pub fn init(allocator: std.mem.Allocator) Self {
@@ -395,6 +533,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn createEntity(self: *Self, components: anytype, tags: []const type) EntityPointer {
             const template: Template = .{ .components = comptime getComponentsFromTuple(@TypeOf(components)), .tags = tags };
+            const archetype_index: usize = comptime ResourceRegistry.getExactArchetypeIndex(template);
 
             const new_entity_ptr: EntityPointer = init: {
                 if (self.unused_entitys.items.len > 0) {
@@ -404,17 +543,6 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                 self.entity_count += 1;
                 break :init .{ .entity = EntityType.make(self.entity_count - 1), .generation = GenerationType.make(0) };
-            };
-
-            const component_bitset: ResourceRegistry.Components.ComponentBitset = comptime ResourceRegistry.Components.getBitset(template.components);
-            const tag_bitset: ResourceRegistry.Tags.TagBitset = comptime ResourceRegistry.Tags.getBitset(template.tags);
-
-            const archetype_index: usize = comptime init: {
-                for (self.archetypes, 0..) |archetype, i| {
-                    if ((@TypeOf(archetype).tag_bitset.eql(tag_bitset) and @TypeOf(archetype).component_bitset.eql(component_bitset))) break :init i;
-                }
-
-                @compileError("Supplied template didn't have a corresponding archetype.");
             };
 
             if (ct.TupleOfItems(template.components) == ct.TupleOfItems(self.archetypes[archetype_index].template.components)) {
