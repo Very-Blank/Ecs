@@ -14,38 +14,6 @@ pub const Template: type = struct {
     components: []const type = &.{},
     tags: []const type = &.{},
 
-    pub fn hasComponent(self: *const Template, component: type) bool {
-        for (self.components) |comp| {
-            if (comp == component) return true;
-        }
-
-        return false;
-    }
-
-    pub fn hasTag(self: *const Template, tag: type) bool {
-        for (self.tags) |t| {
-            if (t == tag) return true;
-        }
-
-        return false;
-    }
-
-    pub fn getComponentIndex(self: *const Template, component: type) usize {
-        for (self.components, 0..) |comp, i| {
-            if (comp == component) return i;
-        }
-
-        @compileError("Invalid component given, " ++ @typeName(component) ++ ". Wasn't in the components list.");
-    }
-
-    pub fn getTagIndex(self: *const Template, tag: type) usize {
-        for (self.tags, 0..) |t, i| {
-            if (t == tag) return i;
-        }
-
-        @compileError("Invalid tag given, " ++ @typeName(tag) ++ ". Wasn't in the tag list");
-    }
-
     pub fn eql(self: *const Template, other: Template) bool {
         if (self.components.len != other.components.len) return false;
 
@@ -115,41 +83,9 @@ pub fn NonExhaustiveEnum(comptime T: type, comptime Unique: type) type {
     };
 }
 
-pub const EntityType = enum(u32) {
-    _,
-
-    pub inline fn make(@"u32": u32) EntityType {
-        return @enumFromInt(@"u32");
-    }
-
-    pub inline fn value(@"enum": EntityType) u32 {
-        return @intFromEnum(@"enum");
-    }
-};
-
-pub const GenerationType = enum(u32) {
-    _,
-
-    pub inline fn make(@"u32": u32) GenerationType {
-        return @enumFromInt(@"u32");
-    }
-
-    pub inline fn value(@"enum": GenerationType) u32 {
-        return @intFromEnum(@"enum");
-    }
-};
-
-pub const SingletonType = enum(u32) {
-    _,
-
-    pub inline fn make(@"u32": u32) SingletonType {
-        return @enumFromInt(@"u32");
-    }
-
-    pub inline fn value(@"enum": SingletonType) u32 {
-        return @intFromEnum(@"enum");
-    }
-};
+pub const EntityType = NonExhaustiveEnum(u32, opaque {});
+pub const GenerationType = NonExhaustiveEnum(u32, opaque {});
+pub const SingletonType = NonExhaustiveEnum(u32, opaque {});
 
 pub const EntityPointer = struct {
     entity: EntityType,
@@ -162,14 +98,11 @@ pub const ArchetypePointer = struct {
 };
 
 // NOTE: Add functions that assume that entity has a certain template so we can speed up some operations.
-
 pub fn Ecs(comptime templates: []const Template) type {
     if (templates.len == 0) {
         @compileError("Was called with an empty template array.");
     }
 
-    // FIXME: Remove bad templates maybe?
-    // NEEEDS MORE CHECKS
     for (templates, 0..) |template, i| {
         for (i + 1..templates.len) |j| {
             if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ ct.itoa(i) ++ ", template two index: " ++ ct.itoa(j));
@@ -207,9 +140,9 @@ pub fn Ecs(comptime templates: []const Template) type {
             for (templates, 0..) |template, i| {
                 const archetype: type = Archetype(
                     template,
-                    ResourceRegistry.component_types.len,
+                    ResourceRegistry.Components.types.len,
                     ResourceRegistry.Components.getBitset(template.components),
-                    ResourceRegistry.tags_types.len,
+                    ResourceRegistry.Tags.types.len,
                     ResourceRegistry.Tags.getBitset(template.tags),
                 );
 
@@ -235,7 +168,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         unused_entitys: std.ArrayList(EntityPointer),
         destroyed_entitys: std.ArrayList(EntityPointer),
 
-        singletons: std.ArrayList(struct { ResourceRegistry.ComponentBitset, ResourceRegistry.TagBitset }),
+        singletons: std.ArrayList(struct { ResourceRegistry.Components.Bitset, ResourceRegistry.Tags.Bitset }),
         singleton_to_entity_map: std.AutoHashMapUnmanaged(SingletonType, EntityPointer),
 
         entity_count: u32,
@@ -274,177 +207,100 @@ pub fn Ecs(comptime templates: []const Template) type {
                 return count;
             }
 
-            pub const Components = struct {
-                const components_len = getUniqueTypeCount("components");
+            fn Registry(field: []const u8) type {
+                return struct {
+                    const len = getUniqueTypeCount(field);
 
-                pub const component_types: [components_len]type = init: {
-                    var i_component_types: [components_len]type = undefined;
-                    var i: usize = 0;
+                    pub const types: [len]type = init: {
+                        var init_types: [len]type = undefined;
+                        var i: usize = 0;
 
-                    for (templates) |template| {
-                        inner: for (template.components) |component| {
-                            for (0..i) |j| {
-                                if (i_component_types[j] == component) continue :inner;
-                            }
-
-                            i_component_types[i] = component;
-                            i += 1;
-                        }
-                    }
-
-                    if (i != i_component_types) @compileError("The calculated count of unique tags was incorrect.");
-                    break :init i_component_types;
-                };
-
-                pub fn getBitset(comptime components: []const type) ComponentBitset {
-                    var bitset: ComponentBitset = .initEmpty();
-                    outer: for (components) |component| {
-                        for (component_types, 0..) |existing_component, i| {
-                            if (existing_component == component) {
-                                if (bitset.isSet(i)) {
-                                    @compileError("Components had two of the same component " ++ @typeName(component) ++ ", Which is not allowed.");
+                        for (templates) |template| {
+                            inner: for (@field(template, field)) |@"type"| {
+                                for (0..i) |j| {
+                                    if (init_types[j] == @"type") continue :inner;
                                 }
 
-                                bitset.set(i);
-                                continue :outer;
+                                init_types[i] = @"type";
+                                i += 1;
                             }
                         }
 
-                        @compileError("Was given a component " ++ @typeName(component) ++ ", that wasn't known by the ECS.");
-                    }
+                        if (i != init_types.len) @compileError("The calculated count of unique " ++ field ++ " was incorrect.");
+                        break :init init_types;
+                    };
 
-                    return bitset;
-                }
+                    pub const Bitset = std.bit_set.StaticBitSet(len);
 
-                pub fn getId(comptime component: type) usize {
-                    for (component_types, 0..) |existing_component, i| {
-                        if (existing_component == component) {
-                            return i;
-                        }
-                    }
+                    pub fn getBitset(comptime included_types: []const type) Bitset {
+                        var bitset: Bitset = .initEmpty();
+                        outer: for (included_types) |@"type"| {
+                            for (types, 0..) |existing_type, i| {
+                                if (existing_type == @"type") {
+                                    if (bitset.isSet(i)) {
+                                        @compileError(.{std.ascii.toUpper(field[0])} ++ field[1..field.len] ++ " had two of the same " ++ field[0 .. field.len - 1] ++ " " ++ @typeName(@"type") ++ ", Which is not allowed.");
+                                    }
 
-                    @compileError("Was given a component " ++ @typeName(component) ++ ", that wasn't known by the ECS.");
-                }
-
-                pub const ComponentBitset = std.bit_set.StaticBitSet(component_types.len);
-            };
-
-            pub const Tags = struct {
-                const tags_len = getUniqueTypeCount("tags");
-
-                pub const tag_types: [tags_len]type = init: {
-                    var i_tag_types: [tags_len]type = undefined;
-                    var i: usize = 0;
-
-                    for (templates) |template| {
-                        inner: for (template.components) |component| {
-                            for (0..i) |j| {
-                                if (i_tag_types[j] == component) continue :inner;
-                            }
-
-                            i_tag_types[i] = component;
-                            i += 1;
-                        }
-                    }
-
-                    if (i != tags_len) @compileError("The calculated count of unique tags was incorrect.");
-
-                    break :init i_tag_types;
-                };
-
-                pub fn getBitset(comptime tags: []const type) TagBitset {
-                    var bitset: TagBitset = .initEmpty();
-                    outer: for (tags) |tag| {
-                        for (tag_types, 0..) |existing_component, i| {
-                            if (tag == existing_component) {
-                                if (bitset.isSet(i)) {
-                                    @compileError("Tags had two of the same tag " ++ @typeName(tag) ++ ", Which is not allowed.");
+                                    bitset.set(i);
+                                    continue :outer;
                                 }
+                            }
 
-                                bitset.set(i);
-                                continue :outer;
+                            @compileError("Was given a " ++ field[0 .. field.len - 1] ++ ": " ++ @typeName(@"type") ++ ", that wasn't known by the ECS.");
+                        }
+
+                        return bitset;
+                    }
+
+                    pub fn getId(comptime @"type": type) usize {
+                        for (types, 0..) |existing_component, i| {
+                            if (existing_component == @"type") {
+                                return i;
                             }
                         }
 
-                        @compileError("Was given a tag " ++ @typeName(tag) ++ ", that wasn't known by the ECS.");
+                        @compileError("Was given a " ++ field[0 .. field.len - 1] ++ ": " ++ @typeName(@"type") ++ ", that wasn't known by the ECS.");
                     }
+                };
+            }
 
-                    return bitset;
-                }
+            pub const Components = Registry("components");
 
-                pub fn getId(comptime tag: type) usize {
-                    for (tag_types, 0..) |existing_component, i| {
-                        if (existing_component == tag) {
+            pub const Tags = Registry("tags");
+
+            pub const Archetypes = struct {
+                pub fn getIndexByBitsets(component_bitset: Components.Bitset, tag_bitset: Tags.Bitset) !usize {
+                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields, 0..) |archetype_field, i| {
+                        if (archetype_field.type.Tags.bitset.eql(tag_bitset) and
+                            archetype_field.type.Components.bitset.eql(component_bitset))
                             return i;
-                        }
                     }
 
-                    @compileError("Was given a tag " ++ @typeName(tag) ++ ", that wasn't known by the ECS.");
+                    return error.ArchetypeDoesNotExist;
                 }
 
-                pub const TagBitset = std.bit_set.StaticBitSet(tag_types.len);
-            };
-
-            pub fn getExactArchetypeIndex(template: Template) usize {
-                const component_bitset: Components.ComponentBitset = Components.getBitset(template.components);
-                const tag_bitset: Tags.TagBitset = Tags.getBitset(template.tags);
-
-                for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields, 0..) |archetype_field, i| {
-                    if (archetype_field.type.tag_bitset.eql(tag_bitset) and
-                        archetype_field.type.component_bitset.eql(component_bitset))
-                        return i;
+                pub fn getIndexByTemplate(template: Template) !usize {
+                    return try getIndexByBitsets(Components.getBitset(template.components), Tags.getBitset(template.tags));
                 }
 
-                @compileError("Supplied template didn't have a corresponding archetype.");
-            }
+                pub fn matchingIndexCount(
+                    include_components: []const type,
+                    include_tags: []const type,
+                    exclude_components: []const type,
+                    exclude_tags: []const type,
+                ) usize {
+                    const component_bitset: Components.Bitset = Components.getBitset(include_components);
+                    const tag_bitset: Tags.Bitset = Tags.getBitset(include_tags);
 
-            pub fn getMatchingArchetypeIndexCount(
-                include_components: []const type,
-                include_tags: []const type,
-                exclude_components: []const type,
-                exclude_tags: []const type,
-            ) usize {
-                const component_bitset: Components.ComponentBitset = Components.getBitset(include_components);
-                const tag_bitset: Tags.TagBitset = Tags.getBitset(include_tags);
+                    const exclude_component_bitset: Components.Bitset = Components.getBitset(exclude_components);
+                    const exclude_tag_bitset: Tags.Bitset = Tags.getBitset(exclude_tags);
 
-                const exclude_component_bitset: Components.ComponentBitset = Components.getBitset(exclude_components);
-                const exclude_tag_bitset: Tags.TagBitset = Tags.getBitset(exclude_tags);
-
-                var matching_archetype_count: usize = 0;
-                for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
-                    if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                        archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(Components.ComponentBitset.initEmpty()) and
-                        archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(Tags.TagBitset.initEmpty()))
-                    {
-                        matching_archetype_count += 1;
-                    }
-                }
-
-                if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-
-                return matching_archetype_count;
-            }
-
-            pub fn getMatchingArchetypeIndices(
-                include_components: []const type,
-                include_tags: []const type,
-                exclude_components: []const type,
-                exclude_tags: []const type,
-            ) [getMatchingArchetypeIndexCount(include_components, include_tags, exclude_tags, include_components)]usize {
-                const component_bitset: Components.ComponentBitset = Components.getBitset(include_components);
-                const tag_bitset: Tags.TagBitset = Tags.getBitset(include_tags);
-
-                const exclude_component_bitset: Components.ComponentBitset = Components.getBitset(exclude_components);
-                const exclude_tag_bitset: Tags.TagBitset = Tags.getBitset(exclude_tags);
-
-                const matching_archetype_count: usize = init: {
-                    var matching_archetype_count = 0;
+                    var matching_archetype_count: usize = 0;
                     for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
-                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(Components.ComponentBitset.initEmpty()) and
-                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(Tags.TagBitset.initEmpty()))
+                        if (archetype_field.type.Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
+                            archetype_field.type.Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                            archetype_field.type.Components.bitset.intersectWith(exclude_component_bitset).eql(Components.Bitset.initEmpty()) and
+                            archetype_field.type.Tags.bitset.intersectWith(exclude_tag_bitset).eql(Tags.Bitset.initEmpty()))
                         {
                             matching_archetype_count += 1;
                         }
@@ -452,27 +308,57 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                     if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
 
-                    break :init matching_archetype_count;
-                };
+                    return matching_archetype_count;
+                }
 
-                return init: {
-                    var archetype_indices: [matching_archetype_count]usize = undefined;
-                    var i: usize = 0;
+                pub fn matchingIndices(
+                    include_components: []const type,
+                    include_tags: []const type,
+                    exclude_components: []const type,
+                    exclude_tags: []const type,
+                ) [matchingIndexCount(include_components, include_tags, exclude_components, exclude_tags)]usize {
+                    const component_bitset: Components.Bitset = Components.getBitset(include_components);
+                    const tag_bitset: Tags.Bitset = Tags.getBitset(include_tags);
 
-                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields, 0..) |archetype_field, j| {
-                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(Components.ComponentBitset.initEmpty()) and
-                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(Tags.TagBitset.initEmpty()))
-                        {
-                            archetype_indices[i] = j;
-                            i += 1;
+                    const exclude_component_bitset: Components.Bitset = Components.getBitset(exclude_components);
+                    const exclude_tag_bitset: Tags.Bitset = Tags.getBitset(exclude_tags);
+
+                    const matching_archetype_count: usize = init: {
+                        var matching_archetype_count = 0;
+                        for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
+                            if (archetype_field.type.Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
+                                archetype_field.type.Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                                archetype_field.type.Components.bitset.intersectWith(exclude_component_bitset).eql(Components.Bitset.initEmpty()) and
+                                archetype_field.type.Tags.bitset.intersectWith(exclude_tag_bitset).eql(Tags.Bitset.initEmpty()))
+                            {
+                                matching_archetype_count += 1;
+                            }
                         }
-                    }
 
-                    break :init archetype_indices;
-                };
-            }
+                        if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
+
+                        break :init matching_archetype_count;
+                    };
+
+                    return init: {
+                        var archetype_indices: [matching_archetype_count]usize = undefined;
+                        var i: usize = 0;
+
+                        for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields, 0..) |archetype_field, j| {
+                            if (archetype_field.type.Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
+                                archetype_field.type.Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset) and
+                                archetype_field.type.Components.bitset.intersectWith(exclude_component_bitset).eql(Components.Bitset.initEmpty()) and
+                                archetype_field.type.Tags.bitset.intersectWith(exclude_tag_bitset).eql(Tags.Bitset.initEmpty()))
+                            {
+                                archetype_indices[i] = j;
+                                i += 1;
+                            }
+                        }
+
+                        break :init archetype_indices;
+                    };
+                }
+            };
         };
 
         pub fn init(allocator: std.mem.Allocator) Self {
@@ -514,10 +400,10 @@ pub fn Ecs(comptime templates: []const Template) type {
             return archetype_ptr.generation == entity_ptr.generation;
         }
 
-        fn getComponentsFromTuple(tuple: type) []const type {
+        fn getTypesFromTuple(tuple: type) []const type {
             const struct_info: std.builtin.Type.Struct = init: switch (@typeInfo(tuple)) {
                 .@"struct" => |value| {
-                    if (!value.is_tuple and value.fields > 0) @compileError("Components must be in a non empty tuple.");
+                    if (!value.is_tuple and value.fields == 0) @compileError("Components must be in a non empty tuple.");
                     break :init value;
                 },
                 else => @compileError("Was given " ++ @tagName(tuple) ++ ", expected a non empty tuple."),
@@ -531,9 +417,57 @@ pub fn Ecs(comptime templates: []const Template) type {
             return &components;
         }
 
+        inline fn translateTupleToTuple(comptime current: []const type, current_tuple: ct.TupleOfItems(current), comptime target: []const type) ct.TupleOfItems(target) {
+            if (current.len != target.len) @compileError("Was called with differing tuple sizes.");
+            comptime order_check: {
+                for (current, 0..) |current_type, i| {
+                    if (current_type != target[i]) break :order_check;
+                }
+
+                @compileError("Was given two tuples that had the same order.");
+            }
+
+            comptime outer: for (current) |current_type| {
+                for (target) |target_type| {
+                    if (current_type == target_type) continue :outer;
+                }
+
+                @compileError("Was given two tuples that had different composition types.");
+            };
+
+            return init: {
+                var new_components: ct.TupleOfItems(target) = undefined;
+                outer: inline for (target, 0..) |target_type, i| {
+                    inline for (current, 0..) |current_type, j| {
+                        if (target_type == current_type) {
+                            new_components[i] = current_tuple[j];
+                            continue :outer;
+                        }
+                    }
+                }
+
+                break :init new_components;
+            };
+        }
+
+        fn setEntity(
+            self: *Self,
+            entity_ptr: EntityPointer,
+            components: anytype,
+            comptime archetype_index: usize,
+        ) void {
+            self.entity_to_archetype_map.put(
+                self.allocator,
+                entity_ptr.entity,
+                .{ .archetype = ArchetypeType.make(@intCast(archetype_index)), .generation = entity_ptr.generation },
+            ) catch unreachable;
+
+            self.archetypes[archetype_index].append(entity_ptr, components, self.allocator) catch unreachable;
+        }
+
         pub fn createEntity(self: *Self, components: anytype, tags: []const type) EntityPointer {
-            const template: Template = .{ .components = comptime getComponentsFromTuple(@TypeOf(components)), .tags = tags };
-            const archetype_index: usize = comptime ResourceRegistry.getExactArchetypeIndex(template);
+            const template: Template = .{ .components = comptime getTypesFromTuple(@TypeOf(components)), .tags = tags };
+            const archetype_index: usize = comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
 
             const new_entity_ptr: EntityPointer = init: {
                 if (self.unused_entitys.items.len > 0) {
@@ -545,28 +479,14 @@ pub fn Ecs(comptime templates: []const Template) type {
                 break :init .{ .entity = EntityType.make(self.entity_count - 1), .generation = GenerationType.make(0) };
             };
 
-            if (ct.TupleOfItems(template.components) == ct.TupleOfItems(self.archetypes[archetype_index].template.components)) {
-                self.archetypes[archetype_index].append(new_entity_ptr, components, self.allocator) catch unreachable;
-                self.entity_to_archetype_map.put(self.allocator, new_entity_ptr.entity, .{ .archetype = ArchetypeType.make(@intCast(archetype_index)), .generation = new_entity_ptr.generation }) catch unreachable;
-            } else {
-                // NOTE: User was not kind.
-                const new_components: ct.TupleOfItems(self.archetypes[archetype_index].template.components) = init: {
-                    var new_components: ct.TupleOfItems(self.archetypes[archetype_index].template.components) = undefined;
-                    outer: inline for (self.archetypes[archetype_index].template.components, 0..) |aComponent, j| {
-                        inline for (template.components, 0..) |uComponent, k| {
-                            if (aComponent == uComponent) {
-                                new_components[j] = components[k];
-                                continue :outer;
-                            }
-                        }
-                    }
-
-                    break :init new_components;
-                };
-
-                self.archetypes[archetype_index].append(new_entity_ptr, new_components, self.allocator) catch unreachable;
-                self.entity_to_archetype_map.put(self.allocator, new_entity_ptr.entity, .{ .archetype = ArchetypeType.make(@intCast(archetype_index)), .generation = new_entity_ptr.generation }) catch unreachable;
-            }
+            self.setEntity(
+                new_entity_ptr,
+                if (comptime @TypeOf(self.archetypes[archetype_index]).Components.orderEql(template.components))
+                    components
+                else
+                    translateTupleToTuple(template.components, components, &@TypeOf(self.archetypes[archetype_index]).Components.types),
+                archetype_index,
+            );
 
             return new_entity_ptr;
         }
@@ -593,36 +513,24 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.destroyed_entitys.clearAndFree(self.allocator);
         }
 
-        pub fn entityHasComponent(
+        /// Takes in a tag or a component and checks if the entity has it.
+        pub fn entityHas(
             self: *Self,
             entity_ptr: EntityPointer,
-            comptime component: type,
+            comptime @"type": type,
         ) bool {
             std.debug.assert(self.entityIsValid(entity_ptr));
+
             const archetype_index: u32 = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype.value();
-            const component_id = comptime comptimeGetComponentId(component);
+            const type_id: usize = comptime if (@sizeOf(@"type") != 0) ResourceRegistry.Components.getId(@"type") else ResourceRegistry.Tags.getId(@"type");
 
             inline for (self.archetypes, 0..) |archetype, i| {
                 if (i == archetype_index) {
-                    return @TypeOf(archetype).component_bitset.isSet(component_id);
-                }
-            }
-
-            unreachable; // NOTE: Would mean that entity exists in an archetype that isn't in archetypes.
-        }
-
-        pub fn entityHasTag(
-            self: *Self,
-            entity_ptr: EntityPointer,
-            comptime tag: type,
-        ) bool {
-            std.debug.assert(self.entityIsValid(entity_ptr));
-            const archetype_index: u32 = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype.value();
-            const tag_id = comptime comptimeGetTagId(tag);
-
-            inline for (self.archetypes, 0..) |archetype, i| {
-                if (i == archetype_index) {
-                    return @TypeOf(archetype).tag_bitset.isSet(tag_id);
+                    if (comptime @sizeOf(@"type") != 0) {
+                        return @TypeOf(archetype).Components.bitset.isSet(type_id);
+                    } else {
+                        return @TypeOf(archetype).Tags.bitset.isSet(type_id);
+                    }
                 }
             }
 
@@ -638,8 +546,8 @@ pub fn Ecs(comptime templates: []const Template) type {
             const archetype_index: u32 = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype.value();
             inline for (self.archetypes, 0..) |archetype, i| {
                 if (i == archetype_index) {
-                    if (comptime archetype.template.hasComponent(component)) {
-                        const columnIndex = comptime archetype.template.getComponentIndex(component);
+                    if (comptime @TypeOf(archetype).Components.has(component)) {
+                        const columnIndex = comptime @TypeOf(archetype).Components.index(component);
                         return &archetype.tuple_array_list.tuple_of_many_ptrs[columnIndex][archetype.entity_to_row_map.get(entity_ptr.entity).?.value()];
                     }
                     return error.ComponentNotFound;
@@ -656,44 +564,34 @@ pub fn Ecs(comptime templates: []const Template) type {
             std.debug.assert(self.entityIsValid(entity_ptr));
 
             const old_archetype_index: usize = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype.value();
-            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(&.{T});
+            const component_bitset: ResourceRegistry.Components.Bitset = comptime ResourceRegistry.Components.getBitset(&.{T});
 
-            outer: inline for (0..self.archetypes.len) |i| {
+            inline for (0..self.archetypes.len) |i| {
                 if (i == old_archetype_index) {
-                    if (comptime @TypeOf(self.archetypes[i]).component_bitset.isSet(comptimeGetComponentId(T))) return error.EntityHasComponent;
+                    if (comptime @TypeOf(self.archetypes[i]).Components.bitset.isSet(ResourceRegistry.Components.getId(T))) return error.EntityHasComponent;
 
-                    const new_component_bitset = comptime @TypeOf(self.archetypes[i]).component_bitset.unionWith(component_bitset);
-                    const new_archetype_index = comptime init: {
-                        for (0..self.archetypes.len) |j| {
-                            if (@TypeOf(self.archetypes[j]).component_bitset.eql(new_component_bitset) and
-                                @TypeOf(self.archetypes[j]).tag_bitset.eql(@TypeOf(self.archetypes[i]).tag_bitset))
-                            {
-                                break :init j;
-                            }
-                        }
-
-                        break :outer; // NOTE: THIS BRANCH IS INVALID!
-                    };
+                    const new_component_bitset = comptime @TypeOf(self.archetypes[i]).Components.bitset.unionWith(component_bitset);
+                    const new_archetype_index = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(new_component_bitset, @TypeOf(self.archetypes[i]).Tags.bitset);
 
                     const components = init: {
                         const old_components = self.archetypes[i].popRemove(entity_ptr, self.allocator) catch unreachable;
-                        var components: ct.TupleOfItems(self.archetypes[new_archetype_index].template.components) = undefined;
-                        inline for (self.archetypes[i].template.components, 0..) |comp, j| {
-                            components[comptime self.archetypes[new_archetype_index].template.getComponentIndex(comp)] = old_components[j];
+                        var components: ct.TupleOfItems(&@TypeOf(self.archetypes[new_archetype_index]).Components.types) = undefined;
+                        inline for (@TypeOf(self.archetypes[new_archetype_index]).Components.types, 0..) |comp, j| {
+                            components[comptime @TypeOf(self.archetypes[new_archetype_index]).Components.index(comp)] = old_components[j];
                         }
 
-                        components[comptime self.archetypes[new_archetype_index].template.getComponentIndex(T)] = component;
+                        components[comptime @TypeOf(self.archetypes[new_archetype_index]).Components.index(T)] = component;
 
                         break :init components;
                     };
 
-                    self.entity_to_archetype_map.put(self.allocator, entity_ptr.entity, .{ .archetype = ArchetypeType.make(@intCast(new_archetype_index)), .generation = entity_ptr.generation }) catch unreachable;
-                    self.archetypes[new_archetype_index].append(entity_ptr, components, self.allocator) catch unreachable;
+                    self.setEntity(entity_ptr, components, new_archetype_index);
+
                     return;
                 }
             }
 
-            return error.NoMatchingArchetype;
+            unreachable;
         }
 
         pub fn removeComponentFromEntity(self: *Self, entity_ptr: EntityPointer, comptime T: type) !void {
@@ -701,29 +599,20 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             const old_archetype_index: usize = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype.value();
 
-            outer: inline for (0..self.archetypes.len) |i| {
+            inline for (0..self.archetypes.len) |i| {
                 if (i == old_archetype_index) {
-                    const component_id = comptime comptimeGetComponentId(T);
+                    const component_id = comptime ResourceRegistry.Components.getId(T);
 
-                    if (comptime !@TypeOf(self.archetypes[i]).component_bitset.isSet(component_id)) return error.EntityIsMissingComponent;
+                    if (comptime !@TypeOf(self.archetypes[i]).Components.bitset.isSet(component_id)) return error.EntityIsMissingComponent;
 
-                    const new_component_bitset = comptime init: {
-                        var new_component_bitset: ComponentBitset = @TypeOf(self.archetypes[i]).component_bitset;
-                        new_component_bitset.unset(comptimeGetComponentId(T));
-                        break :init new_component_bitset;
-                    };
-
-                    const new_archetype_index = comptime init: {
-                        for (0..self.archetypes.len) |j| {
-                            if (@TypeOf(self.archetypes[j]).component_bitset.eql(new_component_bitset) and
-                                @TypeOf(self.archetypes[j]).tag_bitset.eql(@TypeOf(self.archetypes[i]).tag_bitset))
-                            {
-                                break :init j;
-                            }
-                        }
-
-                        break :outer; // NOTE: THIS BRANCH IS INVALID!
-                    };
+                    const new_archetype_index = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(
+                        init: {
+                            var new_component_bitset: ResourceRegistry.Components.Bitset = @TypeOf(self.archetypes[i]).Components.bitset;
+                            new_component_bitset.unset(component_id);
+                            break :init new_component_bitset;
+                        },
+                        @TypeOf(self.archetypes[i]).Tags.bitset,
+                    );
 
                     var iterator = self.singleton_to_entity_map.iterator();
                     while (iterator.next()) |entry| {
@@ -734,93 +623,74 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                     const components = init: {
                         const old_components = self.archetypes[i].popRemove(entity_ptr, self.allocator) catch unreachable;
-                        var components: ct.TupleOfItems(self.archetypes[new_archetype_index].template.components) = undefined;
-                        inline for (self.archetypes[new_archetype_index].template.components, 0..) |comp, j| {
-                            components[j] = old_components[comptime self.archetypes[i].template.getComponentIndex(comp)];
+                        var components: ct.TupleOfItems(&@TypeOf(self.archetypes[new_archetype_index]).Components.types) = undefined;
+                        inline for (@TypeOf(self.archetypes[new_archetype_index]).Components.types, 0..) |component, j| {
+                            components[j] = old_components[comptime @TypeOf(self.archetypes[new_archetype_index]).Components.index(component)];
                         }
 
                         break :init components;
                     };
 
-                    self.entity_to_archetype_map.put(self.allocator, entity_ptr.entity, .{ .archetype = ArchetypeType.make(@intCast(new_archetype_index)), .generation = entity_ptr.generation }) catch unreachable;
-                    self.archetypes[new_archetype_index].append(entity_ptr, components, self.allocator) catch unreachable;
+                    self.setEntity(entity_ptr, components, new_archetype_index);
+
                     return;
                 }
             }
 
-            return error.NoMatchingArchetype;
+            unreachable;
         }
 
         pub fn addTagToEntity(self: *Self, entity_ptr: EntityPointer, comptime tag: type) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
 
             const old_archetype_index: usize = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype.value();
-            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(&.{tag});
+            const tag_bitset: ResourceRegistry.Tags.Bitset = comptime ResourceRegistry.Tags.getBitset(&.{tag});
 
-            outer: inline for (0..self.archetypes.len) |i| {
+            inline for (0..self.archetypes.len) |i| {
                 if (i == old_archetype_index) {
-                    if (comptime @TypeOf(self.archetypes[i]).tag_bitset.isSet(comptimeGetTagId(tag))) return error.EntityHasTag;
+                    if (comptime @TypeOf(self.archetypes[i]).Tags.bitset.isSet(ResourceRegistry.Tags.getId(tag))) return error.EntityHasTag;
 
-                    const new_tag_bitset = comptime @TypeOf(self.archetypes[i]).tag_bitset.unionWith(tag_bitset);
-                    const new_archetype_index = comptime init: {
-                        for (0..self.archetypes.len) |j| {
-                            if (@TypeOf(self.archetypes[j]).component_bitset.eql(@TypeOf(self.archetypes[i]).component_bitset) and
-                                @TypeOf(self.archetypes[j]).tag_bitset.eql(new_tag_bitset))
-                            {
-                                break :init j;
-                            }
-                        }
+                    const new_tag_bitset = comptime @TypeOf(self.archetypes[i]).Tags.bitset.unionWith(tag_bitset);
+                    const new_archetype_index = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(@TypeOf(self.archetypes[i]).Components.bitset, new_tag_bitset);
 
-                        break :outer; // NOTE: THIS BRANCH IS INVALID!
-                    };
+                    self.setEntity(
+                        entity_ptr,
+                        if (comptime @TypeOf(self.archetypes[i]).Components.orderEql(&@TypeOf(self.archetypes[new_archetype_index]).Components.type))
+                            self.archetypes[i].popRemove(entity_ptr, self.allocator)
+                        else
+                            translateTupleToTuple(
+                                @TypeOf(self.archetypes[i]).Components.type,
+                                self.archetypes[i].popRemove(entity_ptr, self.allocator),
+                                @TypeOf(self.archetypes[new_archetype_index]).Components.type,
+                            ),
+                        new_archetype_index,
+                    );
 
-                    const components = init: {
-                        const old_components = self.archetypes[i].popRemove(entity_ptr, self.allocator) catch unreachable;
-                        var components: ct.TupleOfItems(self.archetypes[new_archetype_index].template.components) = undefined;
-                        inline for (self.archetypes[i].template.components, 0..) |comp, j| {
-                            components[comptime self.archetypes[new_archetype_index].template.getComponentIndex(comp)] = old_components[j];
-                        }
-
-                        break :init components;
-                    };
-
-                    self.entity_to_archetype_map.put(self.allocator, entity_ptr.entity, .{ .archetype = ArchetypeType.make(@intCast(new_archetype_index)), .generation = entity_ptr.generation }) catch unreachable;
-                    self.archetypes[new_archetype_index].append(entity_ptr, components, self.allocator) catch unreachable;
                     return;
                 }
             }
 
-            return error.NoMatchingArchetype;
+            unreachable;
         }
 
         pub fn removeTagFromEntity(self: *Self, entity_ptr: EntityPointer, comptime tag: type) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
             const old_archetype_index: usize = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype.value();
 
-            outer: inline for (0..self.archetypes.len) |i| {
+            inline for (0..self.archetypes.len) |i| {
                 if (i == old_archetype_index) {
-                    const tag_id = comptime comptimeGetTagId(tag);
+                    const tag_id = comptime ResourceRegistry.Tags.getId(tag);
 
-                    if (comptime !@TypeOf(self.archetypes[i]).tag_bitset.isSet(tag_id)) return error.EntityIsMissingComponent;
+                    if (comptime !@TypeOf(self.archetypes[i]).Tags.bitset.isSet(tag_id)) return error.EntityIsMissingTag;
 
                     const new_tag_bitset = comptime init: {
-                        var new_tag_bitset = @TypeOf(self.archetypes[i]).tag_bitset;
-                        new_tag_bitset.unset(comptimeGetTagId(tag));
+                        var new_tag_bitset = @TypeOf(self.archetypes[i]).Tags.bitset;
+                        new_tag_bitset.unset(tag_id);
 
                         break :init new_tag_bitset;
                     };
 
-                    const new_archetype_index = comptime init: {
-                        for (0..self.archetypes.len) |j| {
-                            if (@TypeOf(self.archetypes[j]).component_bitset.eql(@TypeOf(self.archetypes[i]).component_bitset) and
-                                @TypeOf(self.archetypes[j]).tag_bitset.eql(new_tag_bitset))
-                            {
-                                break :init j;
-                            }
-                        }
-
-                        break :outer; // NOTE: THIS BRANCH IS INVALID!
-                    };
+                    const new_archetype_index = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(@TypeOf(self.archetypes[i]).Components.bitset, new_tag_bitset);
 
                     var iterator = self.singleton_to_entity_map.iterator();
                     while (iterator.next()) |entry| {
@@ -829,23 +699,22 @@ pub fn Ecs(comptime templates: []const Template) type {
                         }
                     }
 
-                    const components = init: {
-                        const old_components = self.archetypes[i].popRemove(entity_ptr, self.allocator) catch unreachable;
-                        var components: ct.TupleOfItems(self.archetypes[new_archetype_index].template.components) = undefined;
-                        inline for (self.archetypes[i].template.components, 0..) |comp, j| {
-                            components[comptime self.archetypes[new_archetype_index].template.getComponentIndex(comp)] = old_components[j];
-                        }
-
-                        break :init components;
-                    };
-
-                    self.entity_to_archetype_map.put(self.allocator, entity_ptr.entity, .{ .archetype = ArchetypeType.make(@intCast(new_archetype_index)), .generation = entity_ptr.generation }) catch unreachable;
-                    self.archetypes[new_archetype_index].append(entity_ptr, components, self.allocator) catch unreachable;
-                    return;
+                    self.setEntity(
+                        entity_ptr,
+                        if (comptime @TypeOf(self.archetypes[i]).Components.orderEql(&@TypeOf(self.archetypes[new_archetype_index]).Components.type))
+                            self.archetypes[i].popRemove(entity_ptr, self.allocator)
+                        else
+                            translateTupleToTuple(
+                                @TypeOf(self.archetypes[i]).Components.type,
+                                self.archetypes[i].popRemove(entity_ptr, self.allocator),
+                                @TypeOf(self.archetypes[new_archetype_index]).Components.type,
+                            ),
+                        new_archetype_index,
+                    );
                 }
             }
 
-            return error.NoMatchingArchetype;
+            unreachable;
         }
 
         fn getMeantArchetypeTemplate(template: Template) Template {
@@ -856,78 +725,31 @@ pub fn Ecs(comptime templates: []const Template) type {
             @compileError("Supplied template didn't have a corresponding archetype.");
         }
 
-        pub fn getArchetype(self: *Self, comptime template: Template) init: {
-            const m_template = getMeantArchetypeTemplate(template);
-            break :init *Archetype(
-                m_template,
-                component_types.len,
-                comptimeGetComponentBitset(m_template.components),
-                tags_types.len,
-                comptimeGetTagBitset(m_template.tags),
-            );
-        } {
-            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(template.components);
-            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(template.tags);
-
-            const archetype_index: usize = comptime init: {
-                for (self.archetypes, 0..) |archetype, i| {
-                    if ((@TypeOf(archetype).tag_bitset.eql(tag_bitset) and @TypeOf(archetype).component_bitset.eql(component_bitset))) break :init i;
-                }
-
-                @compileError("Supplied template didn't have a corresponding archetype.");
-            };
-
-            return &self.archetypes[archetype_index];
+        // FIXME: FIX COMPILE ERORAAAA.
+        pub fn getArchetype(self: *Self, comptime template: Template) @TypeOf(self.archetypes[comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("No matching somethign")]) {
+            return &self.archetypes[comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("No matching somethign")];
         }
 
         pub fn Iterator(filter: Filter) type {
             return GenericIterator(
                 filter.component,
-                counter: {
-                    const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
-                    const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
-
-                    const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
-                    const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
-
-                    var matching_archetype_count: usize = 0;
-                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
-                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
-                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
-                        {
-                            matching_archetype_count += 1;
-                        }
-                    }
-                    if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-                    break :counter matching_archetype_count;
-                },
+                ResourceRegistry.Archetypes.matchingIndexCount(
+                    &.{filter.component},
+                    filter.tags,
+                    filter.exclude.components,
+                    filter.exclude.tags,
+                ),
             );
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter) {
-            const matching_archetype_indices: []const usize = comptime init: {
-                const component_bitset: ComponentBitset = comptimeGetComponentBitset(&.{filter.component});
-                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.tags);
-
-                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
-                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
-
-                var matching_archetype_indices: []usize = &[_]usize{};
-                for (self.archetypes, 0..) |archetype, i| {
-                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                        @TypeOf(archetype).component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
-                    {
-                        matching_archetype_indices = @constCast(matching_archetype_indices ++ .{i});
-                    }
-                }
-                if (matching_archetype_indices.len == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-                break :init matching_archetype_indices;
-            };
+            const matching_archetype_indices = comptime ResourceRegistry.Archetypes.matchingIndices(
+                &.{filter.component},
+                filter.tags,
+                filter.exclude.components,
+                filter.exclude.tags,
+            );
 
             var component_arrays: [matching_archetype_indices.len][]filter.component = undefined;
             var entitys: [matching_archetype_indices.len][]EntityPointer = undefined;
@@ -951,51 +773,23 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn TupleIterator(filter: TupleFilter) type {
             return GenericTupleIterator(
                 filter.include.components,
-                counter: {
-                    const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
-                    const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
-
-                    const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
-                    const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
-
-                    var matching_archetype_count: usize = 0;
-                    for (@typeInfo(@FieldType(Self, "archetypes")).@"struct".fields) |archetype_field| {
-                        if (archetype_field.type.component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                            archetype_field.type.tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                            archetype_field.type.component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
-                            archetype_field.type.tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
-                        {
-                            matching_archetype_count += 1;
-                        }
-                    }
-                    if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-                    break :counter matching_archetype_count;
-                },
+                ResourceRegistry.Archetypes.matchingIndexCount(
+                    filter.include.components,
+                    filter.include.tags,
+                    filter.exclude.components,
+                    filter.exclude.tags,
+                ),
             );
         }
 
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator {
-            const matching_archetype_indices: []const usize = comptime init: {
-                const component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.include.components);
-                const tag_bitset: TagBitset = comptimeGetTagBitset(filter.include.tags);
-
-                const exclude_component_bitset: ComponentBitset = comptimeGetComponentBitset(filter.exclude.components);
-                const exclude_tag_bitset: TagBitset = comptimeGetTagBitset(filter.exclude.tags);
-
-                var matching_archetype_indices: []usize = &[_]usize{};
-                for (self.archetypes, 0..) |archetype, i| {
-                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                        @TypeOf(archetype).component_bitset.intersectWith(exclude_component_bitset).eql(ComponentBitset.initEmpty()) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(exclude_tag_bitset).eql(TagBitset.initEmpty()))
-                    {
-                        matching_archetype_indices = @constCast(matching_archetype_indices ++ .{i});
-                    }
-                }
-                if (matching_archetype_indices.len == 0) @compileError("No matching archetypes with the supplied include and exclude.");
-                break :init matching_archetype_indices;
-            };
+        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(filter) {
+            const matching_archetype_indices = comptime ResourceRegistry.Archetypes.matchingIndices(
+                filter.include.components,
+                filter.include.tags,
+                filter.exclude.components,
+                filter.exclude.tags,
+            );
 
             var tuple_of_buffers: TupleOfBuffers(filter.include.components, matching_archetype_indices.len) = undefined;
             var entitys: [matching_archetype_indices.len][]EntityPointer = undefined;
@@ -1020,12 +814,12 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn createSingleton(self: *Self, requirements: Template) SingletonType {
-            const component_bitset: ComponentBitset = comptime comptimeGetComponentBitset(requirements.components);
-            const tag_bitset: TagBitset = comptime comptimeGetTagBitset(requirements.tags);
+            const component_bitset: ResourceRegistry.Components.Bitset = comptime ResourceRegistry.Components.getBitset(requirements.components);
+            const tag_bitset: ResourceRegistry.Tags.Bitset = comptime ResourceRegistry.Tags.getBitset(requirements.tags);
             comptime check: {
                 for (self.archetypes) |archetype| {
-                    if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset))
+                    if (@TypeOf(archetype).Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
+                        @TypeOf(archetype).Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset))
                     {
                         break :check;
                     }
@@ -1038,22 +832,28 @@ pub fn Ecs(comptime templates: []const Template) type {
             return SingletonType.make(@intCast(self.singletons.items.len - 1));
         }
 
-        pub fn setSingletonsEntity(self: *Self, singleton: SingletonType, entityPtr: EntityPointer) !void {
+        pub fn setSingletonsEntity(self: *Self, singleton: SingletonType, entity_ptr: EntityPointer) !void {
+            std.debug.assert(self.entityIsValid(entity_ptr));
             std.debug.assert(singleton.value() < self.singletons.items.len);
+
             const component_bitset, const tag_bitset = self.singletons.items[singleton.value()];
 
-            inline for (self.archetypes) |archetype| {
-                if (@TypeOf(archetype).component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                    @TypeOf(archetype).tag_bitset.intersectWith(tag_bitset).eql(tag_bitset))
-                {
-                    if (archetype.entity_to_row_map.get(entityPtr.entity) != null) {
-                        self.singleton_to_entity_map.put(self.allocator, singleton, entityPtr) catch unreachable;
+            const archetype_index: usize = self.entity_to_archetype_map.get(entity_ptr.entity).?.generation.value();
+
+            inline for (0..self.archetypes.len) |i| {
+                if (i == archetype_index) {
+                    if (comptime @TypeOf(self.archetypes[i]).Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
+                        @TypeOf(self.archetypes[i]).Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset))
+                    {
+                        self.singleton_to_entity_map.put(self.allocator, singleton, entity_ptr) catch unreachable;
                         return;
+                    } else {
+                        return error.EntityNotMatchRequirments;
                     }
                 }
             }
 
-            return error.EntityNotMatchRequirments;
+            unreachable;
         }
 
         pub fn clearSingletonsEntity(self: *Self, singleton: SingletonType) void {
@@ -1098,31 +898,31 @@ test "Getting a bitset" {
     const EcsType: type = @TypeOf(ecs);
 
     {
-        var expected = EcsType.ComponentBitset.initEmpty();
+        var expected = EcsType.ResourceRegistry.Components.Bitset.initEmpty();
         expected.set(0);
-        const component_bitset = comptime EcsType.comptimeGetComponentBitset(&.{Position});
+        const component_bitset = comptime EcsType.ResourceRegistry.Components.getBitset(&.{Position});
         try std.testing.expect(expected.eql(component_bitset));
     }
 
     {
-        var expected = EcsType.ComponentBitset.initEmpty();
+        var expected = EcsType.ResourceRegistry.Components.Bitset.initEmpty();
         expected.set(0);
         expected.set(1);
-        const component_bitset = comptime EcsType.comptimeGetComponentBitset(&.{ Position, Collider });
+        const component_bitset = comptime EcsType.ResourceRegistry.Components.getBitset(&.{ Position, Collider });
         try std.testing.expect(expected.eql(component_bitset));
     }
 
     {
-        var expected = EcsType.ComponentBitset.initEmpty();
+        var expected = EcsType.ResourceRegistry.Components.Bitset.initEmpty();
         expected.set(1);
-        const component_bitset = comptime EcsType.comptimeGetComponentBitset(&.{Collider});
+        const component_bitset = comptime EcsType.ResourceRegistry.Components.getBitset(&.{Collider});
         try std.testing.expect(expected.eql(component_bitset));
     }
 
     {
-        var expected = EcsType.TagBitset.initEmpty();
+        var expected = EcsType.ResourceRegistry.Tags.Bitset.initEmpty();
         expected.set(0);
-        const tag_bitset = comptime EcsType.comptimeGetTagBitset(&.{Tag});
+        const tag_bitset = comptime EcsType.ResourceRegistry.Tags.getBitset(&.{Tag});
         try std.testing.expect(expected.eql(tag_bitset));
     }
 }

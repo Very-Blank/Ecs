@@ -35,21 +35,75 @@ pub const RowType = enum(u32) {
 pub fn Archetype(
     comptime template: Template,
     comptime component_count: usize,
-    comptime ComponentBitset: std.bit_set.StaticBitSet(component_count),
+    comptime component_bitset: std.bit_set.StaticBitSet(component_count),
     comptime tag_count: usize,
-    comptime TagBitset: std.bit_set.StaticBitSet(tag_count),
+    comptime tag_bitset: std.bit_set.StaticBitSet(tag_count),
 ) type {
     return struct {
-        comptime template: Template = template,
-
         tuple_array_list: TupleArrayList(template.components),
         entity_to_row_map: std.AutoHashMapUnmanaged(EntityType, RowType),
         row_to_entity_map: std.AutoHashMapUnmanaged(RowType, EntityPointer),
         entitys: std.ArrayList(EntityPointer),
 
         const Self = @This();
-        pub const component_bitset: std.bit_set.StaticBitSet(component_count) = ComponentBitset;
-        pub const tag_bitset: std.bit_set.StaticBitSet(tag_count) = TagBitset;
+
+        fn Registry(field: []const u8, count: usize, _bitset: std.bit_set.StaticBitSet(count)) type {
+            return struct {
+                pub const types: [@field(template, field).len]type = init: {
+                    var init_types: [@field(template, field).len]type = undefined;
+                    for (@field(template, field), 0..) |@"type", i| {
+                        init_types[i] = @"type";
+                    }
+
+                    break :init init_types;
+                };
+
+                pub const bitset: std.bit_set.StaticBitSet(count) = _bitset;
+
+                pub fn has(@"type": type) bool {
+                    for (types) |existing_type| {
+                        if (@"type" == existing_type) return true;
+                    }
+
+                    return false;
+                }
+
+                pub fn index(@"type": type) usize {
+                    for (types, 0..) |existing_type, i| {
+                        if (@"type" == existing_type) return i;
+                    }
+
+                    @compileError("Was called with an type that isn't in archetype's " ++ .{std.ascii.toUpper(field[0])} ++ field[1..field.len] ++ " types.");
+                }
+
+                pub fn eql(other_types: []const type) bool {
+                    if (types.len != other_types) return false;
+
+                    outer: for (types) |@"type"| {
+                        for (other_types) |other_type| {
+                            if (@"type" == other_type) continue :outer;
+                        }
+
+                        return false;
+                    }
+
+                    return true;
+                }
+
+                pub fn orderEql(other_types: []const type) bool {
+                    if (types.len != other_types.len) @compileError("Was called with an array that differed with the types len.");
+
+                    for (types, 0..) |@"type", i| {
+                        if (@"type" != other_types[i]) return false;
+                    }
+
+                    return true;
+                }
+            };
+        }
+
+        pub const Components = Registry("components", component_count, component_bitset);
+        pub const Tags = Registry("tags", tag_count, tag_bitset);
 
         pub const init: Self = .{
             .tuple_array_list = .empty,
@@ -59,7 +113,7 @@ pub fn Archetype(
         };
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            inline for (template.components, 0..) |component, i| {
+            inline for (Components.types, 0..) |component, i| {
                 const deinit_fn = init: {
                     if (!@hasDecl(component, "deinit")) continue;
                     switch (@typeInfo(@TypeOf(component.deinit))) {
@@ -98,7 +152,7 @@ pub fn Archetype(
             self.entitys.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity_ptr: EntityPointer, components: ct.TupleOfItems(template.components), allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity_ptr: EntityPointer, components: ct.TupleOfItems(&Components.types), allocator: std.mem.Allocator) !void {
             try self.tuple_array_list.append(components, allocator);
 
             try self.entitys.append(allocator, entity_ptr);
@@ -107,11 +161,11 @@ pub fn Archetype(
             try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity_ptr);
         }
 
-        pub fn popRemove(self: *Self, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !ct.TupleOfItems(template.components) {
+        pub fn popRemove(self: *Self, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !ct.TupleOfItems(&Components.types) {
             const row: RowType = self.entity_to_row_map.get(entity_ptr.entity) orelse unreachable;
 
-            const old_components: ct.TupleOfItems(template.components) = init: {
-                const old_components: ct.TupleOfItems(template.components) = self.tuple_array_list.swapRemove(row.value());
+            const old_components: ct.TupleOfItems(&Components.types) = init: {
+                const old_components: ct.TupleOfItems(&Components.types) = self.tuple_array_list.swapRemove(row.value());
 
                 break :init old_components;
             };
@@ -139,7 +193,7 @@ pub fn Archetype(
             const row: RowType = self.entity_to_row_map.get(entity_ptr.entity) orelse unreachable;
 
             var old_components = self.tuple_array_list.swapRemove(row.value());
-            inline for (template.components, 0..) |component, i| {
+            inline for (Components.types, 0..) |component, i| {
                 const deinit_fn = init: {
                     if (!@hasDecl(component, "deinit")) continue;
                     switch (@typeInfo(@TypeOf(component.deinit))) {
