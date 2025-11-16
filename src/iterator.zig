@@ -1,7 +1,7 @@
 const std = @import("std");
 const EntityPointer = @import("ecs.zig").EntityPointer;
 
-pub fn Iterator(comptime T: type, comptime size: usize) type {
+pub fn GenericIterator(comptime T: type, comptime size: usize) type {
     return struct {
         buffers: [size][]T,
         entities: [size][]const EntityPointer,

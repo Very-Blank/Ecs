@@ -5,8 +5,8 @@ const Archetype = @import("archetype.zig").Archetype;
 const ArchetypeType = @import("archetype.zig").ArchetypeType;
 const RowType = @import("archetype.zig").RowType;
 
-const GenericIterator = @import("iterator.zig").Iterator;
-const GenericTupleIterator = @import("tupleIterator.zig").TupleIterator;
+const GenericIterator = @import("iterator.zig").GenericIterator;
+const GenericTupleIterator = @import("tupleIterator.zig").GenericTupleIterator;
 
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
 
