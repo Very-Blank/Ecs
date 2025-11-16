@@ -168,13 +168,15 @@ pub fn Ecs(comptime templates: []const Template) type {
         unused_entitys: std.ArrayList(EntityPointer),
         destroyed_entitys: std.ArrayList(EntityPointer),
 
-        singletons: std.ArrayList(struct { ResourceRegistry.Components.Bitset, ResourceRegistry.Tags.Bitset }),
+        singletons: std.ArrayList(Singleton),
         singleton_to_entity_map: std.AutoHashMapUnmanaged(SingletonType, EntityPointer),
 
         entity_count: u32,
         allocator: std.mem.Allocator,
 
         const Self = @This();
+
+        pub const Singleton = struct { ResourceRegistry.Components.Bitset, ResourceRegistry.Tags.Bitset };
 
         pub const ResourceRegistry = struct {
             fn getUniqueTypeCount(comptime field: []const u8) usize {
@@ -398,6 +400,11 @@ pub fn Ecs(comptime templates: []const Template) type {
             return &self.archetypes[archetype_type.value()];
         }
 
+        fn singleton(self: *Self, singleton_type: SingletonType) Singleton {
+            std.debug.assert(singleton_type.value() < self.singletons.items.len);
+            return self.singletons.items[singleton_type.value()];
+        }
+
         pub fn entityIsValid(self: *Self, entity_ptr: EntityPointer) bool {
             const archetype_ptr = self.entity_to_archetype_map.get(entity_ptr.entity) orelse return false;
 
@@ -503,6 +510,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn clearDestroyedEntitys(self: *Self) void {
             for (self.destroyed_entitys.items) |entity_ptr| {
                 const archetype_type = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
+
                 inline for (0..self.archetypes.len) |i| {
                     const comptime_archetype: ArchetypeType = .make(@intCast(i));
                     if (comptime_archetype == archetype_type) {
@@ -554,6 +562,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                 if (ArchetypeType.make(@intCast(i)) == archetype_type) {
                     if (comptime @TypeOf(arc).Components.has(component)) {
                         const columnIndex = comptime @TypeOf(arc).Components.index(component);
+
                         return &arc.tuple_array_list.tuple_of_many_ptrs[columnIndex][arc.entity_to_row_map.get(entity_ptr.entity).?.value()];
                     }
                     return error.ComponentNotFound;
@@ -659,6 +668,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             inline for (0..self.archetypes.len) |i| {
                 const comptime_archetype = ArchetypeType.make(@intCast(i));
+
                 if (comptime_archetype == old_archetype) {
                     if (comptime @TypeOf(self.archetype(comptime_archetype).*).Tags.bitset.isSet(ResourceRegistry.Tags.getId(tag))) return error.EntityHasTag;
 
@@ -691,6 +701,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             inline for (0..self.archetypes.len) |i| {
                 const comptime_archetype = ArchetypeType.make(@intCast(i));
+
                 if (comptime_archetype == old_archetype) {
                     const tag_id = comptime ResourceRegistry.Tags.getId(tag);
 
@@ -848,19 +859,21 @@ pub fn Ecs(comptime templates: []const Template) type {
             return SingletonType.make(@intCast(self.singletons.items.len - 1));
         }
 
-        pub fn setSingletonsEntity(self: *Self, singleton: SingletonType, entity_ptr: EntityPointer) !void {
+        pub fn setSingletonsEntity(self: *Self, singleton_type: SingletonType, entity_ptr: EntityPointer) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
-            std.debug.assert(singleton.value() < self.singletons.items.len);
+            std.debug.assert(singleton_type.value() < self.singletons.items.len);
 
-            const component_bitset, const tag_bitset = self.singletons.items[singleton.value()];
+            const component_bitset, const tag_bitset = self.singleton(singleton_type);
             const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
 
             inline for (0..self.archetypes.len) |i| {
-                if (ArchetypeType.make(@intCast(i)) == archetype_type) {
-                    if (@TypeOf(self.archetypes[i]).Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        @TypeOf(self.archetypes[i]).Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset))
+                const comptime_archetype = ArchetypeType.make(@intCast(i));
+
+                if (comptime_archetype == archetype_type) {
+                    if (@TypeOf(self.archetype(comptime_archetype).*).Components.bitset.intersectWith(component_bitset).eql(component_bitset) and
+                        @TypeOf(self.archetype(comptime_archetype).*).Tags.bitset.intersectWith(tag_bitset).eql(tag_bitset))
                     {
-                        self.singleton_to_entity_map.put(self.allocator, singleton, entity_ptr) catch unreachable;
+                        self.singleton_to_entity_map.put(self.allocator, singleton_type, entity_ptr) catch unreachable;
                         return;
                     } else {
                         return error.EntityNotMatchRequirments;
@@ -871,18 +884,19 @@ pub fn Ecs(comptime templates: []const Template) type {
             unreachable;
         }
 
-        pub fn clearSingletonsEntity(self: *Self, singleton: SingletonType) void {
-            _ = self.singleton_to_entity_map.remove(singleton);
+        pub fn clearSingletonsEntity(self: *Self, singleton_type: SingletonType) void {
+            _ = self.singleton_to_entity_map.remove(singleton_type);
         }
 
-        pub fn getSingletonsEntity(self: *Self, singleton: SingletonType) ?EntityPointer {
-            std.debug.assert(singleton.value() < self.singletons.items.len);
-            if (self.singleton_to_entity_map.get(singleton)) |entity| {
+        pub fn getSingletonsEntity(self: *Self, singleton_type: SingletonType) ?EntityPointer {
+            std.debug.assert(singleton_type.value() < self.singletons.items.len);
+
+            if (self.singleton_to_entity_map.get(singleton_type)) |entity| {
                 if (self.entity_to_archetype_map.get(entity.entity)) |_| {
                     return entity;
                 }
 
-                std.debug.assert(self.singleton_to_entity_map.remove(singleton));
+                std.debug.assert(self.singleton_to_entity_map.remove(singleton_type));
             }
 
             return null;
