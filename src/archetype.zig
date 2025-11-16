@@ -4,22 +4,12 @@ const ct = @import("comptimeTypes.zig");
 const EntityType = @import("ecs.zig").EntityType;
 const EntityPointer = @import("ecs.zig").EntityPointer;
 const Template = @import("ecs.zig").Template;
+const NonExhaustiveEnum = @import("ecs.zig").NonExhaustiveEnum;
 const Allocator = std.mem.Allocator;
 
 const TupleArrayList = @import("tupleArrayList.zig").TupleArrayList;
 
-pub const ArchetypeType = enum(u32) {
-    _,
-
-    pub inline fn make(@"u32": u32) ArchetypeType {
-        return @enumFromInt(@"u32");
-    }
-
-    pub inline fn value(@"enum": ArchetypeType) u32 {
-        return @intFromEnum(@"enum");
-    }
-};
-
+pub const ArchetypeType = NonExhaustiveEnum(u32, opaque {});
 pub const RowType = enum(u32) {
     _,
 
