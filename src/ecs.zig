@@ -112,23 +112,23 @@ pub fn Ecs(comptime templates: []const Template) type {
     for (templates, 0..) |template, i| {
         if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ ct.itoa(i) ++ ".");
 
-        for (0..template.components.len) |j| {
-            if (@sizeOf(template.components[j]) == 0)
-                @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ ct.itoa(j) ++ ", component: " ++ @typeName(template.components[j]));
+        for (0..template.components.len) |cur_component_index| {
+            if (@sizeOf(template.components[cur_component_index]) == 0)
+                @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ ct.itoa(cur_component_index) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
 
-            for (j + 1..template.components.len) |k| {
-                if (template.components[i] == template.components[k])
-                    @compileError("Template had two of the same component. Template index: " ++ ct.itoa(i) ++ ", component: " ++ @typeName(template.components[j]));
+            for (cur_component_index + 1..template.components.len) |nex_component_index| {
+                if (template.components[cur_component_index] == template.components[nex_component_index])
+                    @compileError("Template had two of the same component. Template index: " ++ ct.itoa(i) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
             }
         }
 
-        for (0..template.tags.len) |j| {
-            if (@sizeOf(template.tags[j]) != 0)
-                @compileError("Templates tag wasn't a ZST, which is not allowed. Template index: " ++ ct.itoa(j) ++ ", tag: " ++ @typeName(template.tags[j]));
+        for (0..template.tags.len) |cur_tag_index| {
+            if (@sizeOf(template.tags[cur_tag_index]) != 0)
+                @compileError("Templates tag wasn't a ZST, which is not allowed. Template index: " ++ ct.itoa(cur_tag_index) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
 
-            for (j + 1..template.tags.len) |k| {
-                if (template.tags[i] == template.tags[k])
-                    @compileError("Template had two of the same tag. Template index: " ++ ct.itoa(i) ++ ", tag: " ++ @typeName(template.tags[j]));
+            for (cur_tag_index + 1..template.tags.len) |nex_tag_index| {
+                if (template.tags[cur_tag_index] == template.tags[nex_tag_index])
+                    @compileError("Template had two of the same tag. Template index: " ++ ct.itoa(i) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
             }
         }
     }
