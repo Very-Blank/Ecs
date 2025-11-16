@@ -99,8 +99,6 @@ pub const ArchetypePointer = struct {
 
 // NOTE: Add functions that assume that entity has a certain template so we can speed up some operations.
 pub fn Ecs(comptime templates: []const Template) type {
-    @setEvalBranchQuota(10_000); // FIXME: I don't know how we hit 1000 so easily this is a bad fix.
-
     if (templates.len == 0) {
         @compileError("Was called with an empty template array.");
     }
@@ -759,6 +757,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn Iterator(filter: Filter) type {
+            @setEvalBranchQuota(10_000); // FIXME: I don't know how we hit 1000 so easily this is a bad fix.
             return GenericIterator(
                 filter.component,
                 ResourceRegistry.Archetypes.matchingIndexCount(
@@ -799,6 +798,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         pub fn TupleIterator(filter: TupleFilter) type {
+            @setEvalBranchQuota(10_000); // FIXME: I don't know how we hit 1000 so easily this is a bad fix.
             return GenericTupleIterator(
                 filter.include.components,
                 ResourceRegistry.Archetypes.matchingIndexCount(
