@@ -483,7 +483,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn createEntity(self: *Self, components: anytype, tags: []const type) EntityPointer {
             const template: Template = .{ .components = comptime getTypesFromTuple(@TypeOf(components)), .tags = tags };
-            const archetype_type: ArchetypeType = comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
+            const entity_archetype: ArchetypeType = comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
 
             const new_entity_ptr: EntityPointer = init: {
                 if (self.unused_entitys.items.len > 0) {
@@ -497,11 +497,11 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             self.setEntity(
                 new_entity_ptr,
-                if (comptime self.typeOfArchetype(archetype_type).Components.orderEql(template.components))
+                if (comptime self.typeOfArchetype(entity_archetype).Components.orderEql(template.components))
                     components
                 else
-                    translateTupleToTuple(template.components, components, &self.typeOfArchetype(archetype_type).Components.types),
-                archetype_type,
+                    translateTupleToTuple(template.components, components, &self.typeOfArchetype(entity_archetype).Components.types),
+                entity_archetype,
             );
 
             return new_entity_ptr;
@@ -514,11 +514,11 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn clearDestroyedEntitys(self: *Self) void {
             for (self.destroyed_entitys.items) |entity_ptr| {
-                const archetype_type = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
+                const entity_archetype = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
 
                 inline for (0..self.archetypes.len) |i| {
                     const comptime_archetype: ArchetypeType = .make(@intCast(i));
-                    if (comptime_archetype == archetype_type) {
+                    if (comptime_archetype == entity_archetype) {
                         self.archetype(comptime_archetype).remove(entity_ptr, self.allocator) catch unreachable;
                     }
                 }
