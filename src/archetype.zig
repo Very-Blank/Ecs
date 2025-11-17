@@ -10,17 +10,7 @@ const Allocator = std.mem.Allocator;
 const TupleArrayList = @import("tupleArrayList.zig").TupleArrayList;
 
 pub const ArchetypeType = NonExhaustiveEnum(u32, opaque {});
-pub const RowType = enum(u32) {
-    _,
-
-    pub inline fn make(@"u32": u32) RowType {
-        return @enumFromInt(@"u32");
-    }
-
-    pub inline fn value(@"enum": RowType) u32 {
-        return @intFromEnum(@"enum");
-    }
-};
+pub const RowType = NonExhaustiveEnum(u32, opaque {});
 
 pub fn Archetype(
     comptime template: Template,
