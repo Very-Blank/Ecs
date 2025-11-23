@@ -617,54 +617,6 @@ pub fn Ecs(comptime templates: []const Template) type {
             unreachable;
         }
 
-        pub fn removeComponentFromEntity(self: *Self, entity_ptr: EntityPointer, comptime T: type) !void {
-            std.debug.assert(self.entityIsValid(entity_ptr));
-
-            const old_entity_archetype: ArchetypeType = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
-
-            inline for (0..self.archetypes.len) |i| {
-                const comptime_archetype = ArchetypeType.make(@intCast(i));
-                if (comptime_archetype == old_entity_archetype) {
-                    const component_id = comptime ResourceRegistry.Components.getId(T);
-
-                    if (comptime !TypeOfArchetype(comptime_archetype).Components.bitset.isSet(component_id)) return error.EntityIsMissingComponent;
-
-                    const new_archetype = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(
-                        init: {
-                            var new_component_bitset: ResourceRegistry.Components.Bitset = TypeOfArchetype(comptime_archetype).Components.bitset;
-                            new_component_bitset.unset(component_id);
-                            break :init new_component_bitset;
-                        },
-                        TypeOfArchetype(comptime_archetype).Tags.bitset,
-                    );
-
-                    var iterator = self.singleton_to_entity_map.iterator();
-                    while (iterator.next()) |entry| {
-                        if (entry.value_ptr.entity == entity_ptr.entity and self.singletons.items[entry.key_ptr.value()][0].isSet(component_id)) {
-                            self.clearSingletonsEntity(entry.key_ptr.*);
-                        }
-                    }
-
-                    const components = init: {
-                        const old_components = self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable;
-                        var components: ct.TupleOfItems(&TypeOfArchetype(new_archetype).Components.types) = undefined;
-
-                        inline for (TypeOfArchetype(new_archetype).Components.types, 0..) |component, j| {
-                            components[j] = old_components[comptime TypeOfArchetype(comptime_archetype).Components.index(component)];
-                        }
-
-                        break :init components;
-                    };
-
-                    self.setEntity(entity_ptr, components, new_archetype);
-
-                    return;
-                }
-            }
-
-            unreachable;
-        }
-
         pub fn addTagToEntity(self: *Self, entity_ptr: EntityPointer, comptime tag: type) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
 
@@ -700,46 +652,72 @@ pub fn Ecs(comptime templates: []const Template) type {
             unreachable;
         }
 
-        pub fn removeTagFromEntity(self: *Self, entity_ptr: EntityPointer, comptime tag: type) !void {
+        pub fn removeFromEntity(self: *Self, entity_ptr: EntityPointer, comptime T: type) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
             const old_entity_archetype: ArchetypeType = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
+
+            const is_component: bool = @sizeOf(T) != 0;
+            const id: usize = comptime if (@sizeOf(T) != 0) ResourceRegistry.Components.getId(T) else ResourceRegistry.Tags.getId(T);
 
             inline for (0..self.archetypes.len) |i| {
                 const comptime_archetype = ArchetypeType.make(@intCast(i));
 
                 if (comptime_archetype == old_entity_archetype) {
-                    const tag_id = comptime ResourceRegistry.Tags.getId(tag);
+                    if (is_component) {
+                        if (comptime !TypeOfArchetype(comptime_archetype).Components.bitset.isSet(id)) return error.EntityIsMissingComponent;
+                    } else {
+                        if (comptime !TypeOfArchetype(comptime_archetype).Tags.bitset.isSet(id)) return error.EntityIsMissingTag;
+                    }
 
-                    if (comptime !TypeOfArchetype(comptime_archetype).Tags.bitset.isSet(tag_id)) return error.EntityIsMissingTag;
+                    const new_component_bitset, const new_tag_bitset = comptime init: {
+                        if (is_component) {
+                            var new_component_bitset = TypeOfArchetype(comptime_archetype).Components.bitset;
+                            new_component_bitset.unset(id);
+                            break :init .{ new_component_bitset, TypeOfArchetype(comptime_archetype).Tags.bitset };
+                        } else {
+                            var new_tag_bitset = TypeOfArchetype(comptime_archetype).Tags.bitset;
+                            new_tag_bitset.unset(id);
 
-                    const new_tag_bitset = comptime init: {
-                        var new_tag_bitset = TypeOfArchetype(comptime_archetype).Tags.bitset;
-                        new_tag_bitset.unset(tag_id);
-
-                        break :init new_tag_bitset;
+                            break :init .{ TypeOfArchetype(comptime_archetype).Components.bitset, new_tag_bitset };
+                        }
                     };
 
-                    const new_entity_archetype = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(TypeOfArchetype(comptime_archetype).Components.bitset, new_tag_bitset);
+                    const new_entity_archetype = try comptime ResourceRegistry.Archetypes.getIndexByBitsets(new_component_bitset, new_tag_bitset);
 
                     var iterator = self.singleton_to_entity_map.iterator();
                     while (iterator.next()) |entry| {
-                        if (entry.value_ptr.entity == entity_ptr.entity and self.singleton(entry.key_ptr.*)[1].isSet(tag_id)) {
-                            self.clearSingletonsEntity(entry.key_ptr.*);
+                        if (is_component) {
+                            if (entry.value_ptr.entity == entity_ptr.entity and self.singletons.items[entry.key_ptr.value()][0].isSet(id)) {
+                                self.clearSingletonsEntity(entry.key_ptr.*);
+                            }
+                        } else {
+                            if (entry.value_ptr.entity == entity_ptr.entity and self.singleton(entry.key_ptr.*)[1].isSet(id)) {
+                                self.clearSingletonsEntity(entry.key_ptr.*);
+                            }
                         }
                     }
 
-                    self.setEntity(
-                        entity_ptr,
-                        if (comptime TypeOfArchetype(comptime_archetype).Components.orderEql(&TypeOfArchetype(new_entity_archetype).Components.types))
-                            self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable
-                        else
-                            translateTupleToTuple(
-                                TypeOfArchetype(comptime_archetype).Components.type,
-                                self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable,
-                                TypeOfArchetype(new_entity_archetype).Components.type,
-                            ),
-                        new_entity_archetype,
-                    );
+                    self.setEntity(entity_ptr, init: {
+                        if (is_component) {
+                            const old_components = self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable;
+                            var components: ct.TupleOfItems(&TypeOfArchetype(new_entity_archetype).Components.types) = undefined;
+
+                            inline for (TypeOfArchetype(new_entity_archetype).Components.types, 0..) |component, j| {
+                                components[j] = old_components[comptime TypeOfArchetype(comptime_archetype).Components.index(component)];
+                            }
+
+                            break :init components;
+                        } else {
+                            if (comptime TypeOfArchetype(comptime_archetype).Components.orderEql(&TypeOfArchetype(new_entity_archetype).Components.types))
+                                break :init self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable
+                            else
+                                break :init translateTupleToTuple(
+                                    TypeOfArchetype(comptime_archetype).Components.type,
+                                    self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable,
+                                    TypeOfArchetype(new_entity_archetype).Components.type,
+                                );
+                        }
+                    }, new_entity_archetype);
 
                     return;
                 }
@@ -1053,7 +1031,7 @@ test "Removing entity's component" {
             const position = try ecs.getEntityComponent(entity, Position);
             try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
 
-            try ecs.removeComponentFromEntity(entity, Collider);
+            try ecs.removeFromEntity(entity, Collider);
         }
 
         {
@@ -1166,7 +1144,7 @@ test "Removing a tag from entity" {
             const position = try ecs.getEntityComponent(entity, Position);
             try std.testing.expectEqual(Position{ .x = 1, .y = 1 }, position.*);
             try std.testing.expect(ecs.entityHas(entity, Tag));
-            try ecs.removeTagFromEntity(entity, Tag);
+            try ecs.removeFromEntity(entity, Tag);
         }
 
         {
