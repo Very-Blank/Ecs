@@ -1,5 +1,5 @@
 # Comptime ECS
-This is a work in progress ECS that is constructed in comptime removing the need for example type erasure when storing components.
+This is a work in progress ECS that is constructed at compile time removing the need for example type erasure when storing components.
 Comptime also allows us to assert much more about the ECS since we know that there is only a finite amount of archetypes,
 we can throw a compile error if the iterator cannot ever match with any archetypes and stack allocate all iterators.
 
