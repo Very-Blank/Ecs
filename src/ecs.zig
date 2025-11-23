@@ -481,6 +481,8 @@ pub fn Ecs(comptime templates: []const Template) type {
             self.archetype(archetype_type).append(entity_ptr, components, self.allocator) catch unreachable;
         }
 
+        /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
+        /// If any iterators include the archetype in it's buffer's, using those iterators is undefiend behaviour.
         pub fn createEntity(self: *Self, components: anytype, tags: []const type) EntityPointer {
             const template: Template = .{ .components = comptime getTypesFromTuple(@TypeOf(components)), .tags = tags };
             const entity_archetype: ArchetypeType = comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
@@ -507,11 +509,14 @@ pub fn Ecs(comptime templates: []const Template) type {
             return new_entity_ptr;
         }
 
+        /// Marks the entity to be removed in the next clearDestroyedEntitys call.
         pub fn destroyEntity(self: *Self, entity_ptr: EntityPointer) void {
             std.debug.assert(self.entityIsValid(entity_ptr));
             self.destroyed_entitys.append(self.allocator, entity_ptr) catch unreachable;
         }
 
+        /// Destroyes all entitys that where marked by destroyEntity.
+        /// If any iterators include any of the destroyed entitys, using those iterators is undefiend behaviour.
         pub fn clearDestroyedEntitys(self: *Self) void {
             for (self.destroyed_entitys.items) |entity_ptr| {
                 const entity_archetype = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
@@ -535,16 +540,16 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn entityHas(
             self: *Self,
             entity_ptr: EntityPointer,
-            comptime @"type": type,
+            comptime T: type,
         ) bool {
             std.debug.assert(self.entityIsValid(entity_ptr));
 
             const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-            const type_id: usize = comptime if (@sizeOf(@"type") != 0) ResourceRegistry.Components.getId(@"type") else ResourceRegistry.Tags.getId(@"type");
+            const type_id: usize = comptime if (@sizeOf(T) != 0) ResourceRegistry.Components.getId(T) else ResourceRegistry.Tags.getId(T);
 
             inline for (self.archetypes, 0..) |arc, i| {
                 if (ArchetypeType.make(@intCast(i)) == archetype_type) {
-                    if (comptime @sizeOf(@"type") != 0) {
+                    if (comptime @sizeOf(T) != 0) {
                         return @TypeOf(arc).Components.bitset.isSet(type_id);
                     } else {
                         return @TypeOf(arc).Tags.bitset.isSet(type_id);
@@ -577,7 +582,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return error.ComponentNotFound;
         }
 
-        /// This will transfer entity from one archetype to another, but this will require an existing component.
+        /// This will transfer entity from one archetype to another while adding a component.
         pub fn addComponentToEntity(self: *Self, entity_ptr: EntityPointer, component: anytype) !void {
             const T = @TypeOf(component);
 
@@ -617,6 +622,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             unreachable;
         }
 
+        /// This will transfer entity from one archetype to another while adding a tag.
         pub fn addTagToEntity(self: *Self, entity_ptr: EntityPointer, comptime tag: type) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
 
@@ -652,31 +658,32 @@ pub fn Ecs(comptime templates: []const Template) type {
             unreachable;
         }
 
+        /// This will transfer entity from one archetype to another without the specified component or tag.
         pub fn removeFromEntity(self: *Self, entity_ptr: EntityPointer, comptime T: type) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
             const old_entity_archetype: ArchetypeType = (self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype;
 
             const is_component: bool = @sizeOf(T) != 0;
-            const id: usize = comptime if (@sizeOf(T) != 0) ResourceRegistry.Components.getId(T) else ResourceRegistry.Tags.getId(T);
+            const type_id: usize = comptime if (@sizeOf(T) != 0) ResourceRegistry.Components.getId(T) else ResourceRegistry.Tags.getId(T);
 
             inline for (0..self.archetypes.len) |i| {
                 const comptime_archetype = ArchetypeType.make(@intCast(i));
 
                 if (comptime_archetype == old_entity_archetype) {
                     if (is_component) {
-                        if (comptime !TypeOfArchetype(comptime_archetype).Components.bitset.isSet(id)) return error.EntityIsMissingComponent;
+                        if (comptime !TypeOfArchetype(comptime_archetype).Components.bitset.isSet(type_id)) return error.EntityIsMissingComponent;
                     } else {
-                        if (comptime !TypeOfArchetype(comptime_archetype).Tags.bitset.isSet(id)) return error.EntityIsMissingTag;
+                        if (comptime !TypeOfArchetype(comptime_archetype).Tags.bitset.isSet(type_id)) return error.EntityIsMissingTag;
                     }
 
                     const new_component_bitset, const new_tag_bitset = comptime init: {
                         if (is_component) {
                             var new_component_bitset = TypeOfArchetype(comptime_archetype).Components.bitset;
-                            new_component_bitset.unset(id);
+                            new_component_bitset.unset(type_id);
                             break :init .{ new_component_bitset, TypeOfArchetype(comptime_archetype).Tags.bitset };
                         } else {
                             var new_tag_bitset = TypeOfArchetype(comptime_archetype).Tags.bitset;
-                            new_tag_bitset.unset(id);
+                            new_tag_bitset.unset(type_id);
 
                             break :init .{ TypeOfArchetype(comptime_archetype).Components.bitset, new_tag_bitset };
                         }
@@ -687,11 +694,11 @@ pub fn Ecs(comptime templates: []const Template) type {
                     var iterator = self.singleton_to_entity_map.iterator();
                     while (iterator.next()) |entry| {
                         if (is_component) {
-                            if (entry.value_ptr.entity == entity_ptr.entity and self.singletons.items[entry.key_ptr.value()][0].isSet(id)) {
+                            if (entry.value_ptr.entity == entity_ptr.entity and self.singletons.items[entry.key_ptr.value()][0].isSet(type_id)) {
                                 self.clearSingletonsEntity(entry.key_ptr.*);
                             }
                         } else {
-                            if (entry.value_ptr.entity == entity_ptr.entity and self.singleton(entry.key_ptr.*)[1].isSet(id)) {
+                            if (entry.value_ptr.entity == entity_ptr.entity and self.singleton(entry.key_ptr.*)[1].isSet(type_id)) {
                                 self.clearSingletonsEntity(entry.key_ptr.*);
                             }
                         }
@@ -734,11 +741,14 @@ pub fn Ecs(comptime templates: []const Template) type {
             @compileError("Supplied template didn't have a corresponding archetype.");
         }
 
+        /// Gets the archetype specified by the template.
         pub fn getArchetype(self: *Self, comptime template: Template) @TypeOf(self.archetype(comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch
             @compileError("No matching archetype with the given template."))) {
             return self.archetype(comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("No matching archetype with the given template."));
         }
 
+        /// The unique iterator type for this ecs.
+        /// Unique because the iterator depends on the amount of matches.
         pub fn Iterator(filter: Filter) type {
             @setEvalBranchQuota(10_000); // FIXME: I don't know how we hit 1000 so easily this is a bad fix.
             return GenericIterator(
@@ -752,6 +762,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             );
         }
 
+        /// Gets an iterator specified by the filter.
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter) {
             const matching_archetypes = comptime ResourceRegistry.Archetypes.matchingIndices(
@@ -780,6 +791,8 @@ pub fn Ecs(comptime templates: []const Template) type {
             return .init(component_arrays, entitys, @intCast(buffer_len));
         }
 
+        /// The unique tuple iterator type for this ecs.
+        /// Unique because the tuple iterator depends on the amount of matches.
         pub fn TupleIterator(filter: TupleFilter) type {
             @setEvalBranchQuota(10_000); // FIXME: I don't know how we hit 1000 so easily this is a bad fix.
             return GenericTupleIterator(
@@ -793,6 +806,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             );
         }
 
+        /// Gets a tuple iterator specified by the tuple filter.
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(filter) {
             const matching_archetypes = comptime ResourceRegistry.Archetypes.matchingIndices(
@@ -824,6 +838,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return GenericTupleIterator(filter.include.components, matching_archetypes.len).init(tuple_of_buffers, entitys, @intCast(buffer_len));
         }
 
+        /// Creates a singleton that has the specified requirments.
         pub fn createSingleton(self: *Self, requirements: Template) SingletonType {
             const component_bitset: ResourceRegistry.Components.Bitset = comptime ResourceRegistry.Components.getBitset(requirements.components);
             const tag_bitset: ResourceRegistry.Tags.Bitset = comptime ResourceRegistry.Tags.getBitset(requirements.tags);
@@ -844,6 +859,8 @@ pub fn Ecs(comptime templates: []const Template) type {
             return SingletonType.make(@intCast(self.singletons.items.len - 1));
         }
 
+        /// Sets the singleton to point to an entity if the entity matches the singletons requirments.
+        /// If the entity's components or tags change and it no longer matches the singletons requirments the entity will be cleared.
         pub fn setSingletonsEntity(self: *Self, singleton_type: SingletonType, entity_ptr: EntityPointer) !void {
             std.debug.assert(self.entityIsValid(entity_ptr));
             std.debug.assert(singleton_type.value() < self.singletons.items.len);
@@ -869,10 +886,12 @@ pub fn Ecs(comptime templates: []const Template) type {
             unreachable;
         }
 
+        /// Clears the set entity from the singleton.
         pub fn clearSingletonsEntity(self: *Self, singleton_type: SingletonType) void {
             _ = self.singleton_to_entity_map.remove(singleton_type);
         }
 
+        /// Gets the entity that is pointed by the singleton.
         pub fn getSingletonsEntity(self: *Self, singleton_type: SingletonType) ?EntityPointer {
             std.debug.assert(singleton_type.value() < self.singletons.items.len);
 
