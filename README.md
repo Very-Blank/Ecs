@@ -1,7 +1,7 @@
 # Comptime ECS
-This is a work in progress ECS that is constructed in comptime removing the need for example type erasure when storing components etc.
-It also allows us to assert much more about the ECS since we know that there is only a finite amount of archetypes;
-for example we can throw a compile error if the iterator cannot ever match with any archetypes.
+This is a work in progress ECS that is constructed in comptime removing the need for example type erasure when storing components.
+Comptime also allows us to assert much more about the ECS since we know that there is only a finite amount of archetypes,
+we can throw a compile error if the iterator cannot ever match with any archetypes and stack allocate all iterators.
 
 # Examples
 ```zig
@@ -15,6 +15,8 @@ const Position = struct {
     y: u32,
 };
 
+// Tags are zst that you can add to split existing archetypes.
+// For example archtype that has the Template{ .components = &.{Position} } is not the same as an archetype that has Template{ .components = &.{Position}, .tags = &.{Tag} }
 const Tag = struct {};
 
 pub fn main() !void {
