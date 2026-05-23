@@ -137,7 +137,7 @@ pub fn Archetype(
             self.entitys.deinit(allocator);
         }
 
-        pub fn append(self: *Self, entity_ptr: EntityPointer, components: ct.TupleOfItems(&Components.types), allocator: std.mem.Allocator) !void {
+        pub fn append(self: *Self, entity_ptr: EntityPointer, components: @Tuple(&Components.types), allocator: std.mem.Allocator) !void {
             try self.tuple_array_list.append(components, allocator);
 
             try self.entitys.append(allocator, entity_ptr);
@@ -146,11 +146,11 @@ pub fn Archetype(
             try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity_ptr);
         }
 
-        pub fn popRemove(self: *Self, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !ct.TupleOfItems(&Components.types) {
+        pub fn popRemove(self: *Self, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !@Tuple(&Components.types) {
             const row: RowType = self.entity_to_row_map.get(entity_ptr.entity) orelse unreachable;
 
-            const old_components: ct.TupleOfItems(&Components.types) = init: {
-                const old_components: ct.TupleOfItems(&Components.types) = self.tuple_array_list.swapRemove(row.value());
+            const old_components: @Tuple(&Components.types) = init: {
+                const old_components: @Tuple(&Components.types) = self.tuple_array_list.swapRemove(row.value());
 
                 break :init old_components;
             };

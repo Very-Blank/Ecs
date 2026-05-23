@@ -74,7 +74,7 @@ pub fn TupleArrayList(items: []const type) type {
         // FIXME:  If allocation fails we must deallocated.
         pub fn append(
             self: *Self,
-            item: compTypes.TupleOfItems(items),
+            item: @Tuple(items),
             allocator: std.mem.Allocator,
         ) !void {
             if (self.capacity == 0) {
@@ -130,10 +130,10 @@ pub fn TupleArrayList(items: []const type) type {
             return;
         }
 
-        pub fn swapRemove(self: *Self, i: usize) compTypes.TupleOfItems(items) {
+        pub fn swapRemove(self: *Self, i: usize) @Tuple(items) {
             std.debug.assert(i < self.count);
 
-            var tuple_of_items: compTypes.TupleOfItems(items) = undefined;
+            var tuple_of_items: @Tuple(items) = undefined;
 
             inline for (0..items.len) |j| {
                 tuple_of_items[j] = self.tuple_of_many_ptrs[j][i];

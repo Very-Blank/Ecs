@@ -433,7 +433,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return components;
         }
 
-        inline fn translateTupleToTuple(comptime current: []const type, current_tuple: ct.TupleOfItems(current), comptime target: []const type) ct.TupleOfItems(target) {
+        inline fn translateTupleToTuple(comptime current: []const type, current_tuple: @Tuple(current), comptime target: []const type) @Tuple(target) {
             if (current.len != target.len) @compileError("Was called with differing tuple sizes.");
             comptime order_check: {
                 for (current, 0..) |current_type, i| {
@@ -452,7 +452,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             };
 
             return init: {
-                var new_components: ct.TupleOfItems(target) = undefined;
+                var new_components: @Tuple(target) = undefined;
                 outer: inline for (target, 0..) |target_type, i| {
                     inline for (current, 0..) |current_type, j| {
                         if (target_type == current_type) {
@@ -602,7 +602,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                     const components = init: {
                         const old_components = self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable;
-                        var components: ct.TupleOfItems(&TypeOfArchetype(new_entity_archetype).Components.types) = undefined;
+                        var components: @Tuple(&TypeOfArchetype(new_entity_archetype).Components.types) = undefined;
 
                         inline for (TypeOfArchetype(comptime_archetype).Components.types, 0..) |comp, j| {
                             components[comptime TypeOfArchetype(new_entity_archetype).Components.index(comp)] = old_components[j];
@@ -707,7 +707,7 @@ pub fn Ecs(comptime templates: []const Template) type {
                     self.setEntity(entity_ptr, init: {
                         if (is_component) {
                             const old_components = self.archetype(comptime_archetype).popRemove(entity_ptr, self.allocator) catch unreachable;
-                            var components: ct.TupleOfItems(&TypeOfArchetype(new_entity_archetype).Components.types) = undefined;
+                            var components: @Tuple(&TypeOfArchetype(new_entity_archetype).Components.types) = undefined;
 
                             inline for (TypeOfArchetype(new_entity_archetype).Components.types, 0..) |component, j| {
                                 components[j] = old_components[comptime TypeOfArchetype(comptime_archetype).Components.index(component)];
