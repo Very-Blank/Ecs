@@ -7,8 +7,23 @@ const RowType = @import("archetype.zig").RowType;
 
 const GenericIterator = @import("iterator.zig").GenericIterator;
 const GenericTupleIterator = @import("tupleIterator.zig").GenericTupleIterator;
-
 const TupleOfBuffers = @import("comptimeTypes.zig").TupleOfBuffers;
+
+pub fn itoa(comptime value: anytype) [:0]const u8 {
+    comptime var string: [:0]const u8 = "";
+    comptime var num = value;
+
+    if (num == 0) {
+        string = string ++ .{'0'};
+    } else {
+        while (num != 0) {
+            string = string ++ .{'0' + (num % 10)};
+            num = num / 10;
+        }
+    }
+
+    return string;
+}
 
 pub const Template: type = struct {
     components: []const type = &.{},
@@ -105,65 +120,50 @@ pub fn Ecs(comptime templates: []const Template) type {
 
     for (templates, 0..) |template, i| {
         for (i + 1..templates.len) |j| {
-            if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ ct.itoa(i) ++ ", template two index: " ++ ct.itoa(j));
+            if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ itoa(i) ++ ", template two index: " ++ itoa(j));
         }
     }
 
     for (templates, 0..) |template, i| {
-        if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ ct.itoa(i) ++ ".");
+        if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ itoa(i) ++ ".");
 
         for (0..template.components.len) |cur_component_index| {
             if (@sizeOf(template.components[cur_component_index]) == 0)
-                @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ ct.itoa(cur_component_index) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
+                @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ itoa(cur_component_index) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
 
             for (cur_component_index + 1..template.components.len) |nex_component_index| {
                 if (template.components[cur_component_index] == template.components[nex_component_index])
-                    @compileError("Template had two of the same component. Template index: " ++ ct.itoa(i) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
+                    @compileError("Template had two of the same component. Template index: " ++ itoa(i) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
             }
         }
 
         for (0..template.tags.len) |cur_tag_index| {
             if (@sizeOf(template.tags[cur_tag_index]) != 0)
-                @compileError("Templates tag wasn't a ZST, which is not allowed. Template index: " ++ ct.itoa(cur_tag_index) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
+                @compileError("Templates tag wasn't a ZST, which is not allowed. Template index: " ++ itoa(cur_tag_index) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
 
             for (cur_tag_index + 1..template.tags.len) |nex_tag_index| {
                 if (template.tags[cur_tag_index] == template.tags[nex_tag_index])
-                    @compileError("Template had two of the same tag. Template index: " ++ ct.itoa(i) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
+                    @compileError("Template had two of the same tag. Template index: " ++ itoa(i) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
             }
         }
     }
 
     return struct {
-        archetypes: init: {
-            var newFields: [templates.len]std.builtin.Type.StructField = undefined;
+        archetypes: @Tuple(init_types: {
+            var new_types: [templates.len]type = undefined;
 
             for (templates, 0..) |template, i| {
-                const archetype_type: type = Archetype(
+                new_types[i] = Archetype(
                     template,
                     ResourceRegistry.Components.types.len,
                     ResourceRegistry.Components.getBitset(template.components),
                     ResourceRegistry.Tags.types.len,
                     ResourceRegistry.Tags.getBitset(template.tags),
                 );
-
-                newFields[i] = std.builtin.Type.StructField{
-                    .name = ct.itoa(i),
-                    .type = archetype_type,
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = @alignOf(archetype_type),
-                };
             }
 
-            break :init @Type(.{
-                .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &newFields,
-                    .decls = &.{},
-                    .is_tuple = true,
-                },
-            });
-        },
+            break :init_types &new_types;
+        }),
         entity_to_archetype_map: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
         unused_entitys: std.ArrayList(EntityPointer),
         destroyed_entitys: std.ArrayList(EntityPointer),
@@ -416,21 +416,21 @@ pub fn Ecs(comptime templates: []const Template) type {
             return archetype_ptr.generation == entity_ptr.generation;
         }
 
-        fn getTypesFromTuple(tuple: type) []const type {
-            const struct_info: std.builtin.Type.Struct = init: switch (@typeInfo(tuple)) {
-                .@"struct" => |value| {
-                    if (!value.is_tuple or value.fields.len == 0) @compileError("Components must be in a non empty tuple.");
-                    break :init value;
-                },
-                else => @compileError("Was given " ++ @tagName(tuple) ++ ", expected a non empty tuple."),
-            };
+        fn getTypesFromTuple(tuple: type) init_type: switch (@typeInfo(tuple)) {
+            .@"struct" => |value| {
+                if (!value.is_tuple or value.fields.len == 0) @compileError("Components must be in a non empty tuple.");
+                break :init_type [value.fields.len]type;
+            },
+            else => @compileError("Was given " ++ @tagName(tuple) ++ ", expected a non empty tuple."),
+        } {
+            const struct_info: std.builtin.Type.Struct = @typeInfo(tuple).@"struct";
 
             var components: [struct_info.fields.len]type = undefined;
             for (0..struct_info.fields.len) |i| {
                 components[i] = struct_info.fields[i].type;
             }
 
-            return &components;
+            return components;
         }
 
         inline fn translateTupleToTuple(comptime current: []const type, current_tuple: ct.TupleOfItems(current), comptime target: []const type) ct.TupleOfItems(target) {
@@ -483,8 +483,8 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
         /// If any iterators include the archetype in it's buffer's, using those iterators is undefiend behaviour.
-        pub fn createEntity(self: *Self, components: anytype, tags: []const type) EntityPointer {
-            const template: Template = .{ .components = comptime getTypesFromTuple(@TypeOf(components)), .tags = tags };
+        pub fn createEntity(self: *Self, components: anytype, comptime tags: []const type) EntityPointer {
+            const template: Template = .{ .components = &comptime getTypesFromTuple(@TypeOf(components)), .tags = tags };
             const entity_archetype: ArchetypeType = comptime ResourceRegistry.Archetypes.getIndexByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
 
             const new_entity_ptr: EntityPointer = init: {
@@ -839,7 +839,7 @@ pub fn Ecs(comptime templates: []const Template) type {
         }
 
         /// Creates a singleton that has the specified requirments.
-        pub fn createSingleton(self: *Self, requirements: Template) SingletonType {
+        pub fn createSingleton(self: *Self, comptime requirements: Template) SingletonType {
             const component_bitset: ResourceRegistry.Components.Bitset = comptime ResourceRegistry.Components.getBitset(requirements.components);
             const tag_bitset: ResourceRegistry.Tags.Bitset = comptime ResourceRegistry.Tags.getBitset(requirements.tags);
 

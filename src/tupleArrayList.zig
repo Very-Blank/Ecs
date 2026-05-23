@@ -2,29 +2,15 @@ const std = @import("std");
 const compTypes = @import("comptimeTypes.zig");
 
 fn TupleOfManyPointers(items: []const type) type {
-    var newFields: [items.len]std.builtin.Type.StructField = init: {
-        var newFields: [items.len]std.builtin.Type.StructField = undefined;
+    return @Tuple(init_types: {
+        var new_items: [items.len]type = undefined;
+
         for (items, 0..) |item, i| {
             if (@sizeOf(item) == 0) @compileError("Tuple of many pointers can't store a ZST, was given type " ++ @typeName(item) ++ ".");
-            newFields[i] = std.builtin.Type.StructField{
-                .name = compTypes.itoa(i),
-                .type = [*]item,
-                .default_value_ptr = null,
-                .is_comptime = false,
-                .alignment = @alignOf([*]item),
-            };
+            new_items[i] = [*]item;
         }
 
-        break :init newFields;
-    };
-
-    return @Type(.{
-        .@"struct" = .{
-            .layout = .auto,
-            .fields = &newFields,
-            .decls = &.{},
-            .is_tuple = true,
-        },
+        break :init_types &new_items;
     });
 }
 
