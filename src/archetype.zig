@@ -95,6 +95,11 @@ pub fn Archetype(
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
             inline for (Components.types, 0..) |component, i| {
                 const deinit_fn = init: {
+                    switch (@typeInfo(component)) {
+                        .@"struct", .@"enum", .@"union", .@"opaque" => {},
+                        else => continue,
+                    }
+
                     if (!@hasDecl(component, "deinit")) continue;
                     switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |deinit_fn| break :init deinit_fn,
@@ -175,6 +180,11 @@ pub fn Archetype(
             var old_components = self.tuple_array_list.swapRemove(row.value());
             inline for (Components.types, 0..) |component, i| {
                 const deinit_fn = init: {
+                    switch (@typeInfo(component)) {
+                        .@"struct", .@"enum", .@"union", .@"opaque" => {},
+                        else => continue,
+                    }
+
                     if (!@hasDecl(component, "deinit")) continue;
                     switch (@typeInfo(@TypeOf(component.deinit))) {
                         .@"fn" => |deinit_fn| break :init deinit_fn,
