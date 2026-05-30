@@ -105,6 +105,10 @@ pub const SingletonType = NonExhaustiveEnum(u32, opaque {});
 pub const EntityPointer = struct {
     entity: EntityType,
     generation: GenerationType,
+
+    pub inline fn eql(self: EntityPointer, other: EntityPointer) bool {
+        return self.entity == other.entity and self.generation == other.generation;
+    }
 };
 
 pub const ArchetypePointer = struct {
