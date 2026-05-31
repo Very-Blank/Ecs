@@ -334,6 +334,11 @@ pub fn Ecs(comptime templates: []const Template) type {
         /// Marks the entity to be removed in the next clearDestroyedEntitys call.
         pub fn destroyEntity(self: *Self, entity_ptr: EntityPointer) void {
             std.debug.assert(self.entityIsValid(entity_ptr));
+
+            for (self.destroyed_entitys.items) |entity| {
+                if (entity.eql(entity_ptr)) return;
+            }
+
             self.destroyed_entitys.append(self.allocator, entity_ptr) catch @panic("OOM");
         }
 
