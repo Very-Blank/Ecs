@@ -1,5 +1,5 @@
 pub const Ecs = @import("ecs.zig").Ecs;
-pub const Template = @import("ecs.zig").Template;
+pub const Template = @import("Template.zig");
 
 pub const EntityPointer = @import("ecs.zig").EntityPointer;
 pub const EntityType = @import("ecs.zig").EntityType;
