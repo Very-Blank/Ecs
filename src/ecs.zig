@@ -414,7 +414,7 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         pub fn setArchetypeInitCapcacity(self: *Self, comptime template: Template, capacity: usize) void {
             std.debug.assert(capacity > 0);
-            self.archetype(comptime Archetypes.getByTemplate(template)).tuple_array_list.init_capacity = capacity;
+            self.archetype(comptime Archetypes.getByTemplate(template) catch @compileError("No matching archetype.")).tuple_array_list.init_capacity = capacity;
         }
 
         /// The unique iterator type for this ecs.
