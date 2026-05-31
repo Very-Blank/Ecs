@@ -362,18 +362,16 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         /// Takes in a tag or a component and checks if the entity has it.
         pub inline fn entityHas(
-            self: *const Self,
+            self: *Self,
             entity_ptr: EntityPointer,
             comptime T: type,
         ) bool {
             std.debug.assert(self.entityIsValid(entity_ptr));
 
-            const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-
             if (@sizeOf(T) != 0) {
-                return self.component_registery.bitsets[archetype_type.value()].isSet(comptime Components.id(T));
+                return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).component_bitset.isSet(comptime Components.id(T));
             } else {
-                return self.tag_registery.bitsets[archetype_type.value()].isSet(comptime Tags.getId(T));
+                return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).tag_bitset.isSet(comptime Tags.id(T));
             }
 
             unreachable; // NOTE: Would mean that entity exists in an archetype that isn't in archetypes.
@@ -680,7 +678,10 @@ test "Getting a single component that an entity owns." {
         }
     }
 
-    _ = ecs.createEntity(.{ TestingTypes.Collider{ .x = 5, .y = 5 }, TestingTypes.Position{ .x = 4, .y = 4 } }, &.{TestingTypes.Tag});
+    const entity = ecs.createEntity(.{ TestingTypes.Collider{ .x = 5, .y = 5 }, TestingTypes.Position{ .x = 4, .y = 4 } }, &.{TestingTypes.Tag});
+
+    try std.testing.expect(ecs.entityHas(entity, TestingTypes.Collider));
+    try std.testing.expect(ecs.entityHas(entity, TestingTypes.Tag));
 }
 
 test "Destroing an entity" {
