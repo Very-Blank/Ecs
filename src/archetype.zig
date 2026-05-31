@@ -25,17 +25,26 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
 
         const Self = @This();
 
-        pub fn init(comptime items: []const type, ids: []const usize, allocator: std.mem.Allocator) !Self {
+        pub fn init(
+            comptime items: []const type,
+            ids: []const usize,
+            component_bitset: std.bit_set.StaticBitSet(component_count),
+            tag_bitset: std.bit_set.StaticBitSet(tag_count),
+            allocator: std.mem.Allocator,
+        ) !Self {
             const component_ids = try allocator.alloc(usize, ids.len);
             errdefer allocator.free(component_ids);
             @memcpy(component_ids, ids);
 
             return .{
-                .tuple_array_list = try .init(items, allocator),
+                .tuple_array_list = .init(items),
                 .entity_to_row_map = .empty,
                 .row_to_entity_map = .empty,
                 .entitys = .empty,
                 .component_ids = component_ids,
+
+                .component_bitset = component_bitset,
+                .tag_bitset = tag_bitset,
             };
         }
 
@@ -107,9 +116,9 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
             return self.entity_to_row_map.get(entity_ptr.entity).?.value();
         }
 
-        pub inline fn getItemArray(self: *Self, component_id: usize, comptime component: type) []component {
+        pub inline fn getItemArray(self: *Self, comptime component: type, component_id: usize) []component {
             for (self.component_ids, 0..) |id, i| {
-                if (component_id == id) return self.tuple_array_list.getItemArray(i, component);
+                if (component_id == id) return self.tuple_array_list.getItemArray(component, i);
             }
 
             unreachable;

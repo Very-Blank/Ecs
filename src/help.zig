@@ -1,5 +1,55 @@
 const std = @import("std");
 
+pub fn typesFromTuple(tuple: type) init_type: switch (@typeInfo(tuple)) {
+    .@"struct" => |value| {
+        if (!value.is_tuple or value.fields.len == 0) @compileError("Components must be in a non empty tuple.");
+        break :init_type [value.fields.len]type;
+    },
+    else => @compileError("Was given " ++ @tagName(tuple) ++ ", expected a non empty tuple."),
+} {
+    const struct_info: std.builtin.Type.Struct = @typeInfo(tuple).@"struct";
+
+    var components: [struct_info.fields.len]type = undefined;
+    for (0..struct_info.fields.len) |i| {
+        components[i] = struct_info.fields[i].type;
+    }
+
+    return components;
+}
+
+pub inline fn translateTuples(comptime current: []const type, current_tuple: @Tuple(current), comptime target: []const type) @Tuple(target) {
+    if (current.len != target.len) @compileError("Was called with differing tuple sizes.");
+    comptime order_check: {
+        for (current, 0..) |current_type, i| {
+            if (current_type != target[i]) break :order_check;
+        }
+
+        @compileError("Was given two tuples that had the same order.");
+    }
+
+    comptime outer: for (current) |current_type| {
+        for (target) |target_type| {
+            if (current_type == target_type) continue :outer;
+        }
+
+        @compileError("Was given two tuples that had different composition types.");
+    };
+
+    return init: {
+        var new_components: @Tuple(target) = undefined;
+        outer: inline for (target, 0..) |target_type, i| {
+            inline for (current, 0..) |current_type, j| {
+                if (target_type == current_type) {
+                    new_components[i] = current_tuple[j];
+                    continue :outer;
+                }
+            }
+        }
+
+        break :init new_components;
+    };
+}
+
 pub fn callDeinit(comptime T: type, item: *T, allocator: std.mem.Allocator) void {
     const deinit_fn = init: {
         switch (@typeInfo(T)) {

@@ -2,7 +2,7 @@ const std = @import("std");
 const ecs = @import("ecs.zig");
 const Template = @import("Template.zig");
 
-pub fn Registry(templates: []Template, comptime field: []const u8) type {
+pub fn Registry(comptime templates: []const Template, comptime field: []const u8) type {
     const len = length: {
         var count: usize = 0;
 

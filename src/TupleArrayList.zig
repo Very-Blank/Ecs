@@ -56,9 +56,9 @@ pub fn init(comptime items: []const type) Self {
 
                         _allocator.free(unerased[0..self.capacity]);
                     }
-                }
 
-                _allocator.free(self.erased);
+                    _allocator.free(self.erased);
+                }
 
                 self.capacity = 0;
                 self.count = 0;
@@ -97,8 +97,6 @@ pub fn append(
                 return err;
             }).ptr));
         }
-
-        allocator.free(self.erased);
 
         self.erased = new_arrays;
         self.capacity = self.init_capacity;
@@ -158,7 +156,7 @@ pub fn swapRemove(self: *Self, comptime items: []const type, i: usize) @Tuple(it
     return tuple_of_items;
 }
 
-pub fn getItemArray(self: *Self, index: usize, item: type) []item {
+pub fn getItemArray(self: *Self, comptime item: type, index: usize) []item {
     std.debug.assert(0 < self.count);
     return @as([*]item, @ptrCast(@alignCast(self.erased[index])))[0..self.count];
 }
