@@ -289,7 +289,7 @@ pub fn Ecs(comptime templates: []const Template) type {
             return self.singletons.items[singleton_type.value()];
         }
 
-        pub inline fn entityIsValid(self: *Self, entity_ptr: EntityPointer) bool {
+        pub inline fn entityIsValid(self: *const Self, entity_ptr: EntityPointer) bool {
             const archetype_ptr = self.entity_to_archetype_map.get(entity_ptr.entity) orelse return false;
 
             return archetype_ptr.generation == entity_ptr.generation;
