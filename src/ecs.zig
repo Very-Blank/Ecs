@@ -9,6 +9,8 @@ const GenericTupleIterator = @import("tupleIterator.zig").GenericTupleIterator;
 const TupleOfBuffers = help.TupleOfBuffers;
 
 const Template = @import("Template.zig");
+const TupleFilter = @import("TupleFilter.zig");
+const Filter = @import("Filter.zig");
 
 const Registry = @import("registery.zig").Registry;
 
@@ -27,17 +29,6 @@ pub fn itoa(comptime value: anytype) [:0]const u8 {
 
     return string;
 }
-
-pub const TupleFilter = struct {
-    include: Template,
-    exclude: Template = .{},
-};
-
-pub const Filter = struct {
-    component: type,
-    tags: []const type = &.{},
-    exclude: Template = .{},
-};
 
 pub fn NonExhaustiveEnum(comptime T: type, comptime Unique: type) type {
     ok: {
@@ -370,11 +361,9 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             if (@sizeOf(T) != 0) {
                 return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).component_bitset.isSet(comptime Components.id(T));
-            } else {
-                return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).tag_bitset.isSet(comptime Tags.id(T));
             }
 
-            unreachable; // NOTE: Would mean that entity exists in an archetype that isn't in archetypes.
+            return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).tag_bitset.isSet(comptime Tags.id(T));
         }
 
         pub fn getEntityComponent(
@@ -392,9 +381,9 @@ pub fn Ecs(comptime templates: []const Template) type {
 
             if (self.archetype(entity_archetype).component_bitset.isSet(id)) {
                 return &self.archetype(entity_archetype).getItemArray(component, id)[self.archetype(entity_archetype).getEntityRowIndex(entity_ptr)];
-            } else {
-                return error.ComponentNotFound;
             }
+
+            return error.ComponentNotFound;
         }
 
         /// This will transfer entity from one archetype to another while adding a component.
@@ -519,14 +508,14 @@ pub fn Ecs(comptime templates: []const Template) type {
                     const archetype_component_bitest = Components.bitset(template.components);
                     const archetype_tags_bitest = Tags.bitset(template.tags);
 
-                    if (archetype_component_bitest.intersectWith(component_bitset).eql(component_bitset) and
-                        archetype_tags_bitest.intersectWith(tag_bitset).eql(tag_bitset))
+                    if (archetype_component_bitest.supersetOf(component_bitset) and
+                        archetype_tags_bitest.supersetOf(tag_bitset))
                     {
                         break :check;
                     }
                 }
 
-                @compileError("No matching archetype");
+                @compileError("No matching archetype.");
             }
 
             self.singletons.append(self.allocator, .{ component_bitset, tag_bitset }) catch unreachable;
@@ -647,6 +636,9 @@ test "Creating a new entity" {
     var ecs: TestingTypes.EcsType = try .init(std.testing.allocator);
 
     defer ecs.deinit();
+
+    ecs.setArchetypeInitCapcacity(.{ .components = &.{ TestingTypes.Position, TestingTypes.Collider }, .tags = &.{TestingTypes.Tag} }, 100);
+    ecs.setArchetypeInitCapcacity(.{ .components = &.{TestingTypes.Position}, .tags = &.{} }, 100);
 
     for (0..100) |_| {
         _ = ecs.createEntity(
