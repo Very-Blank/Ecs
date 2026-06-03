@@ -22,7 +22,7 @@ pub fn itoa(comptime value: anytype) [:0]const u8 {
         string = string ++ .{'0'};
     } else {
         while (num != 0) {
-            string = string ++ .{'0' + (num % 10)};
+            string = .{'0' + (num % 10)} ++ string;
             num = num / 10;
         }
     }
