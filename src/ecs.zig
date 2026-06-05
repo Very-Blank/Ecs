@@ -13,6 +13,8 @@ const TupleFilter = @import("TupleFilter.zig");
 const Filter = @import("Filter.zig");
 
 const Registry = @import("registery.zig").Registry;
+const LinkTable = @import("links.zig").LinkTable;
+const IndexMode = @import("links.zig").IndexMode;
 
 pub fn itoa(comptime value: anytype) [:0]const u8 {
     comptime var string: [:0]const u8 = "";
@@ -81,8 +83,11 @@ pub const ArchetypePointer = struct {
     generation: GenerationType,
 };
 
-// NOTE: Add functions that assume that entity has a certain template so we can speed up some operations.
-pub fn Ecs(comptime templates: []const Template) type {
+pub fn Ecs(
+    comptime templates: []const Template,
+    // TODO: Add requirments.
+    comptime links: []const struct { name: []const u8, T: type, mode: IndexMode, requirments: Template },
+) type {
     if (templates.len == 0) {
         @compileError("Was called with an empty template array.");
     }
@@ -210,6 +215,31 @@ pub fn Ecs(comptime templates: []const Template) type {
         };
 
         archetypes: [templates.len]Archetype,
+        links: if (links.len != 0) @Struct(
+            .auto,
+            null,
+            &(names: {
+                var names: [links.len][]const u8 = undefined;
+
+                for (links, 0..) |link, i| {
+                    names[i] = link.name;
+                }
+
+                break :names names;
+            }),
+            &(types: {
+                var types: [links.len]type = undefined;
+
+                for (links, 0..) |link, i| {
+                    types[i] = LinkTable(Components.types.len, Tags.types.len, link.T, link.mode);
+                }
+
+                break :types types;
+            }),
+            &(attributes: {
+                break :attributes .{std.builtin.Type.StructField.Attributes{}} ** links.len;
+            }),
+        ) else void,
 
         entity_to_archetype_map: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
 
@@ -246,6 +276,17 @@ pub fn Ecs(comptime templates: []const Template) type {
 
                     break :init archetypes;
                 },
+                .links = if (links.len != 0) init: {
+                    var new_links: @FieldType(Self, "links") = undefined;
+                    inline for (@typeInfo(@FieldType(Self, "links")).@"struct".fields, 0..) |field, i| {
+                        @field(new_links, field.name) = .{
+                            .component_bitset = comptime Components.bitset(links[i].requirments.components),
+                            .tag_bitset = comptime Tags.bitset(links[i].requirments.tags),
+                        };
+                    }
+
+                    break :init new_links;
+                } else {},
                 .entity_to_archetype_map = .empty,
                 .unused_entitys = .empty,
                 .destroyed_entitys = .empty,
@@ -259,6 +300,12 @@ pub fn Ecs(comptime templates: []const Template) type {
         pub fn deinit(self: *Self) void {
             for (0..self.archetypes.len) |i| {
                 self.archetypes[i].deinit(self.allocator);
+            }
+
+            if (links.len != 0) {
+                inline for (@typeInfo(@FieldType(Self, "links")).@"struct".fields) |field| {
+                    @field(self.links, field.name).deinit(self.allocator);
+                }
             }
 
             self.entity_to_archetype_map.deinit(self.allocator);
@@ -548,15 +595,17 @@ pub fn Ecs(comptime templates: []const Template) type {
 
         /// Clears the set entity from the singleton.
         pub fn clearSingletonsEntity(self: *Self, singleton_type: SingletonType) void {
-            _ = self.singleton_to_entity_map.remove(singleton_type);
+            std.debug.assert(self.singleton_to_entity_map.remove(singleton_type));
         }
+
+        // FIXME: entity might not be in the archetype anymore!
 
         /// Gets the entity that is pointed by the singleton.
         pub fn getSingletonsEntity(self: *Self, singleton_type: SingletonType) ?EntityPointer {
             std.debug.assert(singleton_type.value() < self.singletons.items.len);
 
             if (self.singleton_to_entity_map.get(singleton_type)) |entity| {
-                if (self.entity_to_archetype_map.get(entity.entity)) |_| {
+                if (self.entityIsValid(entity)) {
                     return entity;
                 }
 
@@ -564,6 +613,61 @@ pub fn Ecs(comptime templates: []const Template) type {
             }
 
             return null;
+        }
+
+        pub fn createLink(
+            self: *Self,
+            comptime name: []const u8,
+            source: EntityPointer,
+            desination: EntityPointer,
+            value: anytype,
+        ) !void {
+            const component_bitset = @field(self.links, name).component_bitset;
+            const tag_bitset = @field(self.links, name).tag_bitset;
+
+            inline for (.{ source, desination }) |entity| {
+                const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity.entity).?.archetype;
+
+                if (!self.archetype(archetype_type).component_bitset.supersetOf(component_bitset) or
+                    !self.archetype(archetype_type).tag_bitset.supersetOf(tag_bitset))
+                {
+                    return error.EntityNotMatchRequirments;
+                }
+            }
+
+            try @field(self.links, name).create(self.allocator, source, desination, value);
+        }
+
+        pub fn destroyLink(
+            self: *Self,
+            comptime name: []const u8,
+            source: EntityPointer,
+            desination: EntityPointer,
+        ) !void {
+            @field(self.links, name).destroy(self.allocator, @field(self.links, name).linkIndex(source, desination) orelse return error.LinkMissing);
+        }
+
+        pub fn destroyLinkByIndex(
+            self: *Self,
+            comptime name: []const u8,
+            index: usize,
+        ) !void {
+            @field(self.links, name).destroy(self.allocator, index);
+        }
+
+        pub fn getLinks(
+            self: *Self,
+            comptime name: []const u8,
+        ) struct {
+            sources: []const EntityPointer,
+            destinations: []const EntityPointer,
+            data: []const @FieldType(@FieldType(Self, "links"), name).InnerType,
+        } {
+            return .{
+                .sources = @field(self.links, name).getSources(),
+                .destinations = @field(self.links, name).getDestinations(),
+                .data = @field(self.links, name).getData(),
+            };
         }
     };
 }
@@ -585,7 +689,7 @@ const TestingTypes = struct {
         .{ .components = &.{ Position, Collider }, .tags = &.{Tag} },
         .{ .components = &.{Position} },
         .{ .components = &.{Position}, .tags = &.{Tag} },
-    });
+    }, &.{});
 };
 
 // NOTE: These test are kind of unnecceary since you would get compiler errors before getting here.
@@ -898,4 +1002,37 @@ test "Singletons" {
         ecs.setSingletonsEntity(singleton, entity3) catch return error.TestUnexpectedResult;
         try std.testing.expect(ecs.getSingletonsEntity(singleton).?.entity == entity3.entity);
     }
+}
+
+test "Links" {
+    const EcsType = Ecs(&.{
+        .{ .components = &.{TestingTypes.Collider} },
+        .{ .components = &.{ TestingTypes.Position, TestingTypes.Collider }, .tags = &.{TestingTypes.Tag} },
+        .{ .components = &.{TestingTypes.Position} },
+        .{ .components = &.{TestingTypes.Position}, .tags = &.{TestingTypes.Tag} },
+    }, &.{.{ .name = "parent", .T = TestingTypes.Position, .mode = .both, .requirments = .{ .components = &.{TestingTypes.Position} } }});
+
+    var ecs: EcsType = try .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    const entity_1 = ecs.createEntity(
+        .{ TestingTypes.Position{ .x = 6, .y = 5 }, TestingTypes.Collider{ .x = 5, .y = 5 } },
+        &.{TestingTypes.Tag},
+    );
+
+    const entity_2 = ecs.createEntity(
+        .{TestingTypes.Position{ .x = 1, .y = 1 }},
+        &.{},
+    );
+
+    const entity_3 = ecs.createEntity(
+        .{TestingTypes.Collider{ .x = 1, .y = 1 }},
+        &.{},
+    );
+
+    try ecs.createLink("parent", entity_1, entity_2, TestingTypes.Position{ .x = 1, .y = 1 });
+    try std.testing.expectError(error.EntityNotMatchRequirments, ecs.createLink("parent", entity_1, entity_3, TestingTypes.Position{ .x = 1, .y = 1 }));
+
+    _ = ecs.getLinks("parent");
+    defer ecs.destroyLink("parent", entity_1, entity_2) catch unreachable;
 }
