@@ -5,7 +5,7 @@ pub fn typesFromTuple(tuple: type) init_type: switch (@typeInfo(tuple)) {
         if (!value.is_tuple or value.fields.len == 0) @compileError("Components must be in a non empty tuple.");
         break :init_type [value.fields.len]type;
     },
-    else => @compileError("Was given " ++ @tagName(tuple) ++ ", expected a non empty tuple."),
+    else => @compileError("Was given " ++ @typeName(tuple) ++ ", expected a non empty tuple."),
 } {
     const struct_info: std.builtin.Type.Struct = @typeInfo(tuple).@"struct";
 
