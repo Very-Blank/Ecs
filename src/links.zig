@@ -183,7 +183,7 @@ pub fn LinkTable(comptime component_count: usize, comptime tag_count: usize, com
             defer indices.deinit(allocator);
 
             if (mode == .source or mode == .both) {
-                if ((mode == .source or mode == .both) and self.source_to_map.get(entity)) |list| {
+                if (self.source_to_map.get(entity.entity)) |list| {
                     for (list.items) |index| {
                         indices.append(allocator, index) catch @panic("OOM");
                     }
@@ -195,7 +195,7 @@ pub fn LinkTable(comptime component_count: usize, comptime tag_count: usize, com
             }
 
             if (mode == .destination or mode == .both) {
-                if (self.destination_to_map.get(entity)) |list| {
+                if (self.destination_to_map.get(entity.entity)) |list| {
                     for (list.items) |index| {
                         indices.append(allocator, index) catch @panic("OOM");
                     }

@@ -393,7 +393,19 @@ pub fn Ecs(
         /// If any iterators include any of the destroyed entitys, using those iterators is undefiend behaviour.
         pub fn clearDestroyedEntitys(self: *Self) void {
             for (self.destroyed_entitys.items) |entity_ptr| {
-                self.archetype((self.entity_to_archetype_map.get(entity_ptr.entity) orelse unreachable).archetype).remove(entity_ptr, self.allocator) catch unreachable;
+                const entity_archetype = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
+
+                if (links.len != 0) {
+                    inline for (@typeInfo(@FieldType(Self, "links")).@"struct".fields) |field| {
+                        if (self.archetype(entity_archetype).component_bitset.supersetOf(@field(self.links, field.name).component_bitset) and
+                            self.archetype(entity_archetype).tag_bitset.supersetOf(@field(self.links, field.name).tag_bitset))
+                        {
+                            @field(self.links, field.name).destroyAllWithEntity(self.allocator, entity_ptr);
+                        }
+                    }
+                }
+
+                self.archetype(entity_archetype).remove(entity_ptr, self.allocator) catch unreachable;
 
                 std.debug.assert(self.entity_to_archetype_map.remove(entity_ptr.entity));
 
@@ -1033,6 +1045,24 @@ test "Links" {
     try ecs.createLink("parent", entity_1, entity_2, TestingTypes.Position{ .x = 1, .y = 1 });
     try std.testing.expectError(error.EntityNotMatchRequirments, ecs.createLink("parent", entity_1, entity_3, TestingTypes.Position{ .x = 1, .y = 1 }));
 
-    _ = ecs.getLinks("parent");
-    defer ecs.destroyLink("parent", entity_1, entity_2) catch unreachable;
+    {
+        const links = ecs.getLinks("parent");
+
+        try std.testing.expectEqualSlices(EntityPointer, &.{entity_1}, links.sources);
+        try std.testing.expectEqualSlices(EntityPointer, &.{entity_2}, links.destinations);
+        try std.testing.expectEqualSlices(TestingTypes.Position, &.{.{ .x = 1, .y = 1 }}, links.data);
+    }
+    ecs.destroyLink("parent", entity_1, entity_2) catch unreachable;
+    try ecs.createLink("parent", entity_2, entity_1, TestingTypes.Position{ .x = 1, .y = 1 });
+
+    ecs.destroyEntity(entity_2);
+    ecs.clearDestroyedEntitys();
+
+    {
+        const links = ecs.getLinks("parent");
+
+        try std.testing.expectEqualSlices(EntityPointer, &.{}, links.sources);
+        try std.testing.expectEqualSlices(EntityPointer, &.{}, links.destinations);
+        try std.testing.expectEqualSlices(TestingTypes.Position, &.{}, links.data);
+    }
 }
