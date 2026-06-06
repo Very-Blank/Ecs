@@ -85,7 +85,6 @@ pub const ArchetypePointer = struct {
 
 pub fn Ecs(
     comptime templates: []const Template,
-    // TODO: Add requirments.
     comptime links: []const struct { name: []const u8, T: type, mode: IndexMode, requirments: Template },
 ) type {
     if (templates.len == 0) {
@@ -648,6 +647,14 @@ pub fn Ecs(
             }
 
             try @field(self.links, name).create(self.allocator, source, desination, value);
+        }
+
+        pub fn linksBySource(self: *const Self, comptime name: []const u8, src: EntityType) []const usize {
+            @field(self.links, name).linksBySource(src);
+        }
+
+        pub fn linksByDestination(self: *const Self, comptime name: []const u8, dst: EntityType) []const usize {
+            @field(self.links, name).linksByDestination(dst);
         }
 
         pub fn destroyLink(
