@@ -399,7 +399,7 @@ pub fn Ecs(
                         if (self.archetype(entity_archetype).component_bitset.supersetOf(@field(self.links, field.name).component_bitset) and
                             self.archetype(entity_archetype).tag_bitset.supersetOf(@field(self.links, field.name).tag_bitset))
                         {
-                            @field(self.links, field.name).destroyAllWithEntity(self.allocator, entity_ptr);
+                            @field(self.links, field.name).destroyAllWithEntity(self.allocator, entity_ptr) catch @panic("OOM");
                         }
                     }
                 }

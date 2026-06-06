@@ -73,8 +73,8 @@ pub fn LinkTable(comptime component_count: usize, comptime tag_count: usize, com
             self.capacity = 0;
             self.len = 0;
 
-            self.source_to_map = .empty;
-            self.destination_to_map = .empty;
+            self.source_to_map = if (mode == .source or mode == .both) .empty else {};
+            self.destination_to_map = if (mode == .destination or mode == .both) .empty else {};
         }
 
         pub fn create(
@@ -167,7 +167,7 @@ pub fn LinkTable(comptime component_count: usize, comptime tag_count: usize, com
             self.len -= 1;
         }
 
-        pub fn destroyAllWithEntity(self: *Self, allocator: std.mem.Allocator, entity: EntityPointer) void {
+        pub fn destroyAllWithEntity(self: *Self, allocator: std.mem.Allocator, entity: EntityPointer) !void {
             if (mode == .none) {
                 var i: usize = self.len;
                 while (0 < i) : (i -= 1) {
@@ -185,24 +185,24 @@ pub fn LinkTable(comptime component_count: usize, comptime tag_count: usize, com
             if (mode == .source or mode == .both) {
                 if (self.source_to_map.get(entity.entity)) |list| {
                     for (list.items) |index| {
-                        indices.append(allocator, index) catch @panic("OOM");
+                        try indices.append(allocator, index);
                     }
                 }
             } else {
                 for (self.sources[0..self.len], 0..) |source, i| {
-                    if (source.eql(entity)) indices.append(allocator, i) catch @panic("OOM");
+                    if (source.eql(entity)) try indices.append(allocator, i);
                 }
             }
 
             if (mode == .destination or mode == .both) {
                 if (self.destination_to_map.get(entity.entity)) |list| {
                     for (list.items) |index| {
-                        indices.append(allocator, index) catch @panic("OOM");
+                        try indices.append(allocator, index);
                     }
                 }
             } else {
                 for (self.destinations[0..self.len], 0..) |destination, i| {
-                    if (destination.eql(entity)) indices.append(allocator, i) catch @panic("OOM");
+                    if (destination.eql(entity)) try indices.append(allocator, i);
                 }
             }
 
