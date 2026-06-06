@@ -242,7 +242,7 @@ pub fn LinkTable(comptime component_count: usize, comptime tag_count: usize, com
         pub fn linksByDestination(self: *const Self, dst: EntityType) []const usize {
             if (mode != .destination and mode != .both) @compileError("Unexpected mode: " ++ @tagName(mode) ++ ", expected destination or both.");
 
-            return (self.destination_to_map.get(dst) orelse &.{}).items;
+            return (self.destination_to_map.get(dst) orelse return &.{}).items;
         }
 
         pub fn getData(self: *const Self) []const T {
