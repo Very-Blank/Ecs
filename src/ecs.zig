@@ -433,7 +433,7 @@ pub fn Ecs(
             self: *Self,
             entity_ptr: EntityPointer,
             comptime component: type,
-        ) !*component {
+        ) ?*component {
             if (@sizeOf(component) == 0) @compileError("Unexpected tag " ++ @typeName(component) ++ ", expected a component.");
 
             std.debug.assert(self.entityIsValid(entity_ptr));
@@ -446,7 +446,7 @@ pub fn Ecs(
                 return &self.archetype(entity_archetype).getItemArray(component, id)[self.archetype(entity_archetype).getEntityRowIndex(entity_ptr)];
             }
 
-            return error.ComponentNotFound;
+            return null;
         }
 
         /// This will transfer entity from one archetype to another while adding a component.
