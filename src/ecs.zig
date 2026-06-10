@@ -792,13 +792,13 @@ test "Getting a single component that an entity owns." {
         );
 
         {
-            const position = try ecs.getEntityComponent(entity, TestingTypes.Position);
+            const position = ecs.getEntityComponent(entity, TestingTypes.Position).?;
             try std.testing.expectEqual(TestingTypes.Position{ .x = 1, .y = 1 }, position.*);
             position.x = 2;
         }
 
         {
-            const position = try ecs.getEntityComponent(entity, TestingTypes.Position);
+            const position = ecs.getEntityComponent(entity, TestingTypes.Position).?;
             try std.testing.expectEqual(TestingTypes.Position{ .x = 2, .y = 1 }, position.*);
         }
     }
