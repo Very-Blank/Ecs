@@ -16,8 +16,7 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
     return struct {
         tuple_array_list: TupleArrayList,
         entity_to_row_map: std.AutoHashMapUnmanaged(EntityType, RowType),
-        row_to_entity_map: std.AutoHashMapUnmanaged(RowType, EntityPointer),
-        entitys: std.ArrayList(EntityPointer),
+        row_to_entity_map: std.array_hash_map.Auto(RowType, EntityPointer),
         component_ids: []usize,
 
         component_bitset: std.bit_set.StaticBitSet(component_count),
@@ -40,7 +39,6 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
                 .tuple_array_list = .init(items),
                 .entity_to_row_map = .empty,
                 .row_to_entity_map = .empty,
-                .entitys = .empty,
                 .component_ids = component_ids,
 
                 .component_bitset = component_bitset,
@@ -53,17 +51,14 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
 
             self.entity_to_row_map.deinit(allocator);
             self.row_to_entity_map.deinit(allocator);
-            self.entitys.deinit(allocator);
             allocator.free(self.component_ids);
         }
 
         pub fn append(self: *Self, comptime items: []const type, entity_ptr: EntityPointer, components: @Tuple(items), allocator: std.mem.Allocator) !void {
             try self.tuple_array_list.append(items, components, allocator);
 
-            try self.entitys.append(allocator, entity_ptr);
-
-            try self.entity_to_row_map.put(allocator, entity_ptr.entity, RowType.make(@intCast(self.entitys.items.len - 1)));
-            try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.entitys.items.len - 1)), entity_ptr);
+            try self.entity_to_row_map.put(allocator, entity_ptr.entity, RowType.make(@intCast(self.tuple_array_list.count - 1)));
+            try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.tuple_array_list.count - 1)), entity_ptr);
         }
 
         pub fn popRemove(self: *Self, comptime items: []const type, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !@Tuple(items) {
@@ -71,21 +66,19 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
 
             const old_components: @Tuple(items) = self.tuple_array_list.swapRemove(items, row.value());
 
-            if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
+            if (row.value() == self.tuple_array_list.count - 1 or self.tuple_array_list.count == 1) {
                 std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
-                std.debug.assert(self.row_to_entity_map.remove(row));
+                std.debug.assert(self.row_to_entity_map.swapRemove(row));
             } else {
                 const end_row = RowType.make(@intCast(self.tuple_array_list.count));
                 const row_end_entity_ptr = self.row_to_entity_map.get(end_row) orelse unreachable;
 
+                std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
+                std.debug.assert(self.row_to_entity_map.swapRemove(row));
+
                 try self.entity_to_row_map.put(allocator, row_end_entity_ptr.entity, row);
                 try self.row_to_entity_map.put(allocator, row, row_end_entity_ptr);
-
-                std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
-                std.debug.assert(self.row_to_entity_map.remove(end_row));
             }
-
-            _ = self.entitys.swapRemove(row.value());
 
             return old_components;
         }
@@ -95,21 +88,21 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
 
             self.tuple_array_list.remove(&self.tuple_array_list, row.value(), allocator);
 
-            if (row.value() == self.entitys.items.len - 1 or self.entitys.items.len == 1) {
+            if (row.value() == self.row_to_entity_map.values().len - 1 or self.row_to_entity_map.values().len == 1) {
                 std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
-                std.debug.assert(self.row_to_entity_map.remove(row));
-            } else {
-                const end_row = RowType.make(@intCast(self.tuple_array_list.count));
-                const row_end_entity = self.row_to_entity_map.get(end_row) orelse unreachable;
+                std.debug.assert(self.row_to_entity_map.swapRemove(row));
 
-                try self.entity_to_row_map.put(allocator, row_end_entity.entity, row);
-                try self.row_to_entity_map.put(allocator, row, row_end_entity);
-
-                std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
-                std.debug.assert(self.row_to_entity_map.remove(end_row));
+                return;
             }
 
-            _ = self.entitys.swapRemove(row.value());
+            const end_row = RowType.make(@intCast(self.tuple_array_list.count));
+            const row_end_entity_ptr = self.row_to_entity_map.get(end_row) orelse unreachable;
+
+            std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
+            std.debug.assert(self.row_to_entity_map.swapRemove(row));
+
+            try self.entity_to_row_map.put(allocator, row_end_entity_ptr.entity, row);
+            try self.row_to_entity_map.put(allocator, row, row_end_entity_ptr);
         }
 
         pub inline fn getEntityRowIndex(self: *Self, entity_ptr: EntityPointer) usize {

@@ -2,7 +2,7 @@ const std = @import("std");
 const help = @import("help.zig");
 
 const TupleOfBuffers = help.TupleOfBuffers;
-const TupleOfComponentPtrs = help.TupleOfItemPtrs;
+const TupleOfItemPtrs = help.TupleOfItemPtrs;
 const EntityPointer = @import("ecs.zig").EntityPointer;
 
 pub fn GenericTupleIterator(comptime components: []const type, comptime size: usize) type {
@@ -35,12 +35,12 @@ pub fn GenericTupleIterator(comptime components: []const type, comptime size: us
 
         /// Returns the next value in the buffers and whether or not there is next value.
         /// If there is no next value next() will return the last element in the buffers.
-        pub fn next(self: *Self) ?TupleOfComponentPtrs(components) {
+        pub fn next(self: *Self) ?TupleOfItemPtrs(components) {
             if (self.buffer_len <= self.current_buffer) {
                 return null;
             }
 
-            var value: TupleOfComponentPtrs(components) = undefined;
+            var value: TupleOfItemPtrs(components) = undefined;
             inline for (0..components.len) |i| {
                 value[i] = &self.tuple_of_buffers[i][self.current_buffer][self.current_index];
                 self.current_entity = self.entities[self.current_buffer][self.current_index];

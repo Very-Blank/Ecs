@@ -449,6 +449,35 @@ pub fn Ecs(
             return null;
         }
 
+        pub fn getEntityComponents(
+            self: *Self,
+            entity_ptr: EntityPointer,
+            comptime components: []const type,
+        ) ?help.TupleOfItemPtrs(components) {
+            comptime for (components) |component|
+                if (@sizeOf(component) == 0) @compileError("Unexpected tag " ++ @typeName(component) ++ ", expected a component.");
+
+            std.debug.assert(self.entityIsValid(entity_ptr));
+
+            const component_bitset: Components.Bitset = comptime Components.bitset(components);
+
+            const entity_archetype: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
+
+            if (self.archetype(entity_archetype).component_bitset.supersetOf(component_bitset)) {
+                const row = self.archetype(entity_archetype).getEntityRowIndex(entity_ptr);
+                var tuple: help.TupleOfItemPtrs(components) = undefined;
+
+                inline for (components, 0..) |component, i| {
+                    const id = comptime Components.id(component);
+                    tuple[i] = &self.archetype(entity_archetype).getItemArray(component, id)[row];
+                }
+
+                return tuple;
+            }
+
+            return null;
+        }
+
         /// This will transfer entity from one archetype to another while adding a component.
         pub fn addComponentToEntity(_: *Self, _: EntityPointer, _: anytype) !void {
             @compileError("TODO");
@@ -501,7 +530,7 @@ pub fn Ecs(
             for (matching_archetypes) |archetype_type| {
                 if (self.archetype(archetype_type).tuple_array_list.count > 0) {
                     component_arrays[buffer_len] = self.archetype(archetype_type).getItemArray(filter.component, comptime Components.id(filter.component));
-                    entitys[buffer_len] = self.archetype(archetype_type).entitys.items;
+                    entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
                     buffer_len += 1;
                 }
             }
@@ -544,7 +573,7 @@ pub fn Ecs(
 
             for (matching_archetypes) |archetype_type| {
                 if (self.archetype(archetype_type).tuple_array_list.count > 0) {
-                    entitys[buffer_len] = self.archetype(archetype_type).entitys.items;
+                    entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
 
                     inline for (filter.include.components, 0..) |component, j| {
                         tuple_of_buffers[j][buffer_len] = self.archetype(archetype_type).getItemArray(component, comptime Components.id(component));
@@ -787,8 +816,8 @@ test "Getting a single component that an entity owns." {
 
     {
         const entity = ecs.createEntity(
-            .{TestingTypes.Position{ .x = 1, .y = 1 }},
-            &.{},
+            .{ TestingTypes.Position{ .x = 1, .y = 1 }, TestingTypes.Collider{ .x = 5, .y = 5 } },
+            &.{TestingTypes.Tag},
         );
 
         {
@@ -798,8 +827,9 @@ test "Getting a single component that an entity owns." {
         }
 
         {
-            const position = ecs.getEntityComponent(entity, TestingTypes.Position).?;
-            try std.testing.expectEqual(TestingTypes.Position{ .x = 2, .y = 1 }, position.*);
+            const tuple = ecs.getEntityComponents(entity, &.{ TestingTypes.Position, TestingTypes.Collider }).?;
+            try std.testing.expectEqual(TestingTypes.Position{ .x = 2, .y = 1 }, tuple[0].*);
+            try std.testing.expectEqual(TestingTypes.Collider{ .x = 5, .y = 5 }, tuple[1].*);
         }
     }
 
