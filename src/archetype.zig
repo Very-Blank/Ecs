@@ -61,48 +61,35 @@ pub fn Archetype(comptime component_count: usize, comptime tag_count: usize) typ
             try self.row_to_entity_map.put(allocator, RowType.make(@intCast(self.tuple_array_list.count - 1)), entity_ptr);
         }
 
-        pub fn popRemove(self: *Self, comptime items: []const type, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !@Tuple(items) {
-            const row: RowType = self.entity_to_row_map.get(entity_ptr.entity) orelse unreachable;
-
-            const old_components: @Tuple(items) = self.tuple_array_list.swapRemove(items, row.value());
-
-            if (row.value() == self.tuple_array_list.count - 1 or self.tuple_array_list.count == 1) {
-                std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
-                std.debug.assert(self.row_to_entity_map.swapRemove(row));
-            } else {
-                const end_row = RowType.make(@intCast(self.tuple_array_list.count));
-                const row_end_entity_ptr = self.row_to_entity_map.get(end_row) orelse unreachable;
-
-                std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
-                std.debug.assert(self.row_to_entity_map.swapRemove(row));
-
-                try self.entity_to_row_map.put(allocator, row_end_entity_ptr.entity, row);
-                try self.row_to_entity_map.put(allocator, row, row_end_entity_ptr);
-            }
-
-            return old_components;
+        pub fn popRemove(_: *Self, comptime items: []const type, _: EntityPointer, _: std.mem.Allocator) !@Tuple(items) {
+            @compileError("TODO");
         }
 
         pub fn remove(self: *Self, entity_ptr: EntityPointer, allocator: std.mem.Allocator) !void {
             const row: RowType = self.entity_to_row_map.get(entity_ptr.entity) orelse unreachable;
 
-            self.tuple_array_list.remove(&self.tuple_array_list, row.value(), allocator);
+            if (row.value() + 1 == self.tuple_array_list.count or
+                self.tuple_array_list.count == 1)
+            {
+                self.tuple_array_list.remove(&self.tuple_array_list, row.value(), allocator);
 
-            if (row.value() == self.row_to_entity_map.values().len - 1 or self.row_to_entity_map.values().len == 1) {
                 std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
                 std.debug.assert(self.row_to_entity_map.swapRemove(row));
 
                 return;
             }
 
-            const end_row = RowType.make(@intCast(self.tuple_array_list.count));
+            const end_row = RowType.make(@intCast(self.tuple_array_list.count - 1));
             const row_end_entity_ptr = self.row_to_entity_map.get(end_row) orelse unreachable;
+
+            self.tuple_array_list.remove(&self.tuple_array_list, row.value(), allocator);
 
             std.debug.assert(self.entity_to_row_map.remove(entity_ptr.entity));
             std.debug.assert(self.row_to_entity_map.swapRemove(row));
 
             try self.entity_to_row_map.put(allocator, row_end_entity_ptr.entity, row);
             try self.row_to_entity_map.put(allocator, row, row_end_entity_ptr);
+            std.debug.assert(self.row_to_entity_map.swapRemove(end_row));
         }
 
         pub inline fn getEntityRowIndex(self: *Self, entity_ptr: EntityPointer) usize {

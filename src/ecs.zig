@@ -870,6 +870,57 @@ test "Destroing an entity" {
     try std.testing.expect(entity_ptr.generation.value() == entity_ptr2.generation.value() - 1);
 }
 
+test "Hashmap integrity" {
+    var ecs: TestingTypes.EcsType = try .init(std.testing.allocator);
+
+    defer ecs.deinit();
+
+    var list: std.ArrayList(EntityPointer) = .empty;
+    defer list.deinit(std.testing.allocator);
+
+    for (0..2) |_| {
+        try list.append(std.testing.allocator, ecs.createEntity(
+            .{ TestingTypes.Position{ .x = 6, .y = 5 }, TestingTypes.Collider{ .x = 5, .y = 5 } },
+            &.{TestingTypes.Tag},
+        ));
+    }
+
+    for (list.items) |entity| {
+        ecs.destroyEntity(entity);
+        ecs.clearDestroyedEntitys();
+
+        for (ecs.archetypes) |archetype| {
+            const entitys = archetype.row_to_entity_map.values();
+
+            for (entitys) |capture| {
+                try std.testing.expect(ecs.entityIsValid(capture));
+            }
+        }
+    }
+}
+
+test "Deletion swap order check" {
+    var ecs: TestingTypes.EcsType = try .init(std.testing.allocator);
+    defer ecs.deinit();
+
+    for (0..100) |_| {
+        _ = ecs.createEntity(
+            .{ TestingTypes.Position{ .x = 1, .y = 1 }, TestingTypes.Collider{ .x = 5, .y = 5 } },
+            &.{TestingTypes.Tag},
+        );
+    }
+
+    ecs.destroyEntity(.{ .entity = .make(0), .generation = .make(0) });
+    ecs.clearDestroyedEntitys();
+
+    const entities = ecs.archetypes[0].row_to_entity_map.values();
+
+    try std.testing.expectEqual(EntityPointer{ .entity = .make(99), .generation = .make(0) }, entities[0]);
+    for (entities[1..], 1..) |entity, i| {
+        try std.testing.expectEqual(EntityPointer{ .entity = .make(@intCast(i)), .generation = .make(0) }, entity);
+    }
+}
+
 test "Iterating over a component" {
     var ecs: TestingTypes.EcsType = try .init(std.testing.allocator);
 
@@ -937,9 +988,11 @@ test "Checking iterator entitys" {
         var iterator = ecs.getIterator(.{ .component = TestingTypes.Position }).?;
 
         var i: u32 = 0;
-        while (iterator.next()) |_| {
-            try std.testing.expect(iterator.getCurrentEntity().entity.value() == i);
-            i += 1;
+        while (iterator.next()) |_| : (i += 1) {
+            try std.testing.expectEqual(
+                EntityPointer{ .entity = @enumFromInt(i), .generation = .make(0) },
+                iterator.getCurrentEntity(),
+            );
         }
     }
 
@@ -950,7 +1003,7 @@ test "Checking iterator entitys" {
         var iterator = ecs.getIterator(.{ .component = TestingTypes.Position }).?;
 
         if (iterator.next()) |_| {
-            try std.testing.expect(iterator.current_entity.entity.value() == 99);
+            try std.testing.expectEqual(EntityPointer{ .entity = .make(99), .generation = .make(0) }, iterator.getCurrentEntity());
         } else {
             return error.TestUnexpectedResult;
         }
