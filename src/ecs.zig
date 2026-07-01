@@ -85,7 +85,7 @@ pub const ArchetypePointer = struct {
 
 pub fn Ecs(
     comptime templates: []const Template,
-    comptime links: []const struct { name: []const u8, T: type, mode: IndexMode, requirments: Template },
+    comptime _: []const struct { name: []const u8, T: type, mode: IndexMode, requirments: Template },
 ) type {
     if (templates.len == 0) {
         @compileError("Was called with an empty template array.");
@@ -213,269 +213,137 @@ pub fn Ecs(
             }
         };
 
-        archetypes: [templates.len]Archetype,
-        links: if (links.len != 0) @Struct(
-            .auto,
-            null,
-            &(names: {
-                var names: [links.len][]const u8 = undefined;
-
-                for (links, 0..) |link, i| {
-                    names[i] = link.name;
-                }
-
-                break :names names;
-            }),
-            &(types: {
-                var types: [links.len]type = undefined;
-
-                for (links, 0..) |link, i| {
-                    types[i] = LinkTable(Components.types.len, Tags.types.len, link.T, link.mode);
-                }
-
-                break :types types;
-            }),
-            &(attributes: {
-                break :attributes .{std.builtin.Type.StructField.Attributes{}} ** links.len;
-            }),
-        ) else void,
-
-        entity_to_archetype_map: std.AutoHashMapUnmanaged(EntityType, ArchetypePointer),
-
-        unused_entitys: std.ArrayList(EntityPointer),
-        destroyed_entitys: std.ArrayList(EntityPointer),
-
-        singleton_to_entity_map: std.AutoHashMapUnmanaged(SingletonType, EntityPointer),
-        singletons: std.ArrayList(Singleton),
-
-        entity_count: u32,
-        allocator: std.mem.Allocator,
+        ptr: *anyopaque,
 
         const Self = @This();
 
-        pub fn init(allocator: std.mem.Allocator) !Self {
-            return .{
-                .archetypes = init: {
-                    var archetypes: [templates.len]Archetype = undefined;
-
-                    inline for (templates, 0..) |template, i| {
-                        var component_ids: [template.components.len]usize = undefined;
-                        inline for (template.components, 0..) |component, j| {
-                            component_ids[j] = (comptime Components.id(component));
-                        }
-
-                        archetypes[i] = try .init(
-                            templates[i].components,
-                            &component_ids,
-                            comptime Components.bitset(template.components),
-                            comptime Tags.bitset(template.tags),
-                            allocator,
-                        );
-                    }
-
-                    break :init archetypes;
-                },
-                .links = if (links.len != 0) init: {
-                    var new_links: @FieldType(Self, "links") = undefined;
-                    inline for (@typeInfo(@FieldType(Self, "links")).@"struct".fields, 0..) |field, i| {
-                        @field(new_links, field.name) = .{
-                            .component_bitset = comptime Components.bitset(links[i].requirments.components),
-                            .tag_bitset = comptime Tags.bitset(links[i].requirments.tags),
-                        };
-                    }
-
-                    break :init new_links;
-                } else {},
-                .entity_to_archetype_map = .empty,
-                .unused_entitys = .empty,
-                .destroyed_entitys = .empty,
-                .singletons = .empty,
-                .singleton_to_entity_map = .empty,
-                .entity_count = 0,
-                .allocator = allocator,
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            for (0..self.archetypes.len) |i| {
-                self.archetypes[i].deinit(self.allocator);
-            }
-
-            if (links.len != 0) {
-                inline for (@typeInfo(@FieldType(Self, "links")).@"struct".fields) |field| {
-                    @field(self.links, field.name).deinit(self.allocator);
+        pub fn init(capacities: [templates.len]u32, _: std.mem.Allocator) !Self {
+            var component_counts: [Components.types.len]u32 = undefined;
+            var entity_capacity: u32 = 0;
+            inline for (templates, 0..) |template, i| {
+                entity_capacity += capacities[i];
+                inline for (template.components) |component| {
+                    component_counts[comptime Components.id(component)] = capacities[i];
                 }
             }
 
-            self.entity_to_archetype_map.deinit(self.allocator);
-            self.unused_entitys.deinit(self.allocator);
-            self.destroyed_entitys.deinit(self.allocator);
+            @compileError("TODO");
+        }
 
-            self.singletons.deinit(self.allocator);
-            self.singleton_to_entity_map.deinit(self.allocator);
+        pub fn initFromSlice(_: []const u8, _: std.mem.Allocator) !Self {
+            @compileError("TODO");
+        }
+
+        pub fn deinit(_: *Self, _: std.mem.Allocator) void {
+            @compileError("TODO");
         }
 
         // These are here so you don't accidently use the wrong type of enum type to access any of these. LIKE I DID!
-        inline fn archetype(self: *Self, archetype_type: ArchetypeType) *Archetype {
-            std.debug.assert(archetype_type.value() < self.archetypes.len);
-            return &self.archetypes[archetype_type.value()];
+        inline fn archetype(_: *Self, _: ArchetypeType) *Archetype {
+            // std.debug.assert(archetype_type.value() < self.archetypes.len);
+            @compileError("TODO");
         }
 
-        inline fn singleton(self: *Self, singleton_type: SingletonType) Singleton {
-            std.debug.assert(singleton_type.value() < self.singletons.items.len);
-            return self.singletons.items[singleton_type.value()];
+        inline fn singleton(_: *Self, _: SingletonType) Singleton {
+            // std.debug.assert(singleton_type.value() < self.singletons.items.len);
+            @compileError("TODO");
         }
 
-        pub inline fn entityIsValid(self: *const Self, entity_ptr: EntityPointer) bool {
-            const archetype_ptr = self.entity_to_archetype_map.get(entity_ptr.entity) orelse return false;
-
-            return archetype_ptr.generation == entity_ptr.generation;
-        }
-
-        inline fn setEntity(
-            self: *Self,
-            comptime items: []const type,
-            entity_ptr: EntityPointer,
-            components: anytype,
-            archetype_type: ArchetypeType,
-        ) void {
-            self.entity_to_archetype_map.put(
-                self.allocator,
-                entity_ptr.entity,
-                .{ .archetype = archetype_type, .generation = entity_ptr.generation },
-            ) catch @panic("OOM");
-
-            self.archetype(archetype_type).append(items, entity_ptr, components, self.allocator) catch @panic("OOM");
+        pub inline fn entityIsValid(_: *const Self, _: EntityPointer) bool {
+            @compileError("TODO");
         }
 
         /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
         /// If any iterators include the archetype in it's buffer's, using those iterators is undefiend behaviour.
-        pub fn createEntity(self: *Self, components: anytype, comptime tags: []const type) EntityPointer {
-            const template: Template = .{ .components = &comptime help.typesFromTuple(@TypeOf(components)), .tags = tags };
-            const entity_archetype: ArchetypeType = comptime Archetypes.getByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
+        pub fn createEntity(_: *Self, _: anytype, comptime _: []const type) EntityPointer {
+            @compileError("TODO");
+            // const template: Template = .{ .components = &comptime help.typesFromTuple(@TypeOf(components)), .tags = tags };
+            // const entity_archetype: ArchetypeType = comptime Archetypes.getByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
 
-            const new_entity_ptr: EntityPointer = init: {
-                if (self.unused_entitys.items.len > 0) {
-                    const entity_ptr = self.unused_entitys.pop().?;
-                    break :init .{ .entity = entity_ptr.entity, .generation = GenerationType.make(entity_ptr.generation.value() + 1) };
-                }
+            // const new_entity_ptr: EntityPointer = init: {
+            //     if (self.unused_entitys.items.len > 0) {
+            //         const entity_ptr = self.unused_entitys.pop().?;
+            //         break :init .{ .entity = entity_ptr.entity, .generation = GenerationType.make(entity_ptr.generation.value() + 1) };
+            //     }
+            //
+            //     self.entity_count += 1;
+            //     break :init .{ .entity = EntityType.make(self.entity_count - 1), .generation = GenerationType.make(0) };
+            // };
 
-                self.entity_count += 1;
-                break :init .{ .entity = EntityType.make(self.entity_count - 1), .generation = GenerationType.make(0) };
-            };
-
-            self.setEntity(
-                templates[entity_archetype.value()].components,
-                new_entity_ptr,
-                if (comptime templates[entity_archetype.value()].orderEql(template, "components"))
-                    components
-                else
-                    help.translateTuples(template.components, components, templates[entity_archetype.value()].components),
-                entity_archetype,
-            );
-
-            return new_entity_ptr;
+            // self.setEntity(
+            //     templates[entity_archetype.value()].components,
+            //     new_entity_ptr,
+            //     if (comptime templates[entity_archetype.value()].orderEql(template, "components"))
+            //         components
+            //     else
+            //         help.translateTuples(template.components, components, templates[entity_archetype.value()].components),
+            //     entity_archetype,
+            // );
+            //
+            // return new_entity_ptr;
         }
 
         /// Marks the entity to be removed in the next clearDestroyedEntitys call.
-        pub fn destroyEntity(self: *Self, entity_ptr: EntityPointer) void {
-            std.debug.assert(self.entityIsValid(entity_ptr));
-
-            for (self.destroyed_entitys.items) |entity| {
-                if (entity.eql(entity_ptr)) return;
-            }
-
-            self.destroyed_entitys.append(self.allocator, entity_ptr) catch @panic("OOM");
+        pub fn destroyEntity(_: *Self, _: EntityPointer) void {
+            @compileError("TODO");
         }
 
         /// Destroyes all entitys that where marked by destroyEntity.
         /// If any iterators include any of the destroyed entitys, using those iterators is undefiend behaviour.
-        pub fn clearDestroyedEntitys(self: *Self) void {
-            for (self.destroyed_entitys.items) |entity_ptr| {
-                const entity_archetype = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-
-                if (links.len != 0) {
-                    inline for (@typeInfo(@FieldType(Self, "links")).@"struct".fields) |field| {
-                        if (self.archetype(entity_archetype).component_bitset.supersetOf(@field(self.links, field.name).component_bitset) and
-                            self.archetype(entity_archetype).tag_bitset.supersetOf(@field(self.links, field.name).tag_bitset))
-                        {
-                            @field(self.links, field.name).destroyAllWithEntity(self.allocator, entity_ptr) catch @panic("OOM");
-                        }
-                    }
-                }
-
-                self.archetype(entity_archetype).remove(entity_ptr, self.allocator) catch unreachable;
-
-                std.debug.assert(self.entity_to_archetype_map.remove(entity_ptr.entity));
-
-                self.unused_entitys.append(self.allocator, entity_ptr) catch @panic("OOM");
-            }
-
-            self.destroyed_entitys.clearRetainingCapacity();
+        pub fn clearDestroyedEntitys(_: *Self) void {
+            @compileError("TODO");
         }
 
         /// Takes in a tag or a component and checks if the entity has it.
         pub inline fn entityHas(
-            self: *Self,
-            entity_ptr: EntityPointer,
-            comptime T: type,
+            _: *Self,
+            _: EntityPointer,
+            comptime _: type,
         ) bool {
-            std.debug.assert(self.entityIsValid(entity_ptr));
-
-            if (@sizeOf(T) != 0) {
-                return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).component_bitset.isSet(comptime Components.id(T));
-            }
-
-            return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).tag_bitset.isSet(comptime Tags.id(T));
+            // std.debug.assert(self.entityIsValid(entity_ptr));
+            //
+            // if (@sizeOf(T) != 0) {
+            //     return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).component_bitset.isSet(comptime Components.id(T));
+            // }
+            //
+            // return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).tag_bitset.isSet(comptime Tags.id(T));
         }
 
         pub fn getEntityComponent(
-            self: *Self,
-            entity_ptr: EntityPointer,
+            _: *Self,
+            _: EntityPointer,
             comptime component: type,
         ) ?*component {
-            if (@sizeOf(component) == 0) @compileError("Unexpected tag " ++ @typeName(component) ++ ", expected a component.");
-
-            std.debug.assert(self.entityIsValid(entity_ptr));
-
-            const id = comptime Components.id(component);
-
-            const entity_archetype: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-
-            if (self.archetype(entity_archetype).component_bitset.isSet(id)) {
-                return &self.archetype(entity_archetype).getItemArray(component, id)[self.archetype(entity_archetype).getEntityRowIndex(entity_ptr)];
-            }
-
-            return null;
+            @compileError("TODO");
         }
 
         pub fn getEntityComponents(
-            self: *Self,
-            entity_ptr: EntityPointer,
+            _: *Self,
+            _: EntityPointer,
             comptime components: []const type,
         ) ?help.TupleOfItemPtrs(components) {
-            comptime for (components) |component|
-                if (@sizeOf(component) == 0) @compileError("Unexpected tag " ++ @typeName(component) ++ ", expected a component.");
-
-            std.debug.assert(self.entityIsValid(entity_ptr));
-
-            const component_bitset: Components.Bitset = comptime Components.bitset(components);
-
-            const entity_archetype: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-
-            if (self.archetype(entity_archetype).component_bitset.supersetOf(component_bitset)) {
-                const row = self.archetype(entity_archetype).getEntityRowIndex(entity_ptr);
-                var tuple: help.TupleOfItemPtrs(components) = undefined;
-
-                inline for (components, 0..) |component, i| {
-                    const id = comptime Components.id(component);
-                    tuple[i] = &self.archetype(entity_archetype).getItemArray(component, id)[row];
-                }
-
-                return tuple;
-            }
-
-            return null;
+            // comptime for (components) |component|
+            //     if (@sizeOf(component) == 0) @compileError("Unexpected tag " ++ @typeName(component) ++ ", expected a component.");
+            //
+            // std.debug.assert(self.entityIsValid(entity_ptr));
+            //
+            // const component_bitset: Components.Bitset = comptime Components.bitset(components);
+            //
+            // const entity_archetype: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
+            //
+            // if (self.archetype(entity_archetype).component_bitset.supersetOf(component_bitset)) {
+            //     const row = self.archetype(entity_archetype).getEntityRowIndex(entity_ptr);
+            //     var tuple: help.TupleOfItemPtrs(components) = undefined;
+            //
+            //     inline for (components, 0..) |component, i| {
+            //         const id = comptime Components.id(component);
+            //         tuple[i] = &self.archetype(entity_archetype).getItemArray(component, id)[row];
+            //     }
+            //
+            //     return tuple;
+            // }
+            //
+            // return null;
         }
 
         /// This will transfer entity from one archetype to another while adding a component.
@@ -491,11 +359,6 @@ pub fn Ecs(
         /// This will transfer entity from one archetype to another without the specified component or tag.
         pub fn removeFromEntity(_: *Self, _: EntityPointer, comptime _: type) !void {
             @compileError("TODO");
-        }
-
-        pub fn setArchetypeInitCapcacity(self: *Self, comptime template: Template, capacity: usize) void {
-            std.debug.assert(capacity > 0);
-            self.archetype(comptime Archetypes.getByTemplate(template) catch @compileError("No matching archetype.")).tuple_array_list.init_capacity = capacity;
         }
 
         /// The unique iterator type for this ecs.
@@ -515,31 +378,32 @@ pub fn Ecs(
 
         /// Gets an iterator specified by the filter.
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter) {
-            const matching_archetypes = comptime Archetypes.getMatching(
-                &.{filter.component},
-                filter.tags,
-                filter.exclude.components,
-                filter.exclude.tags,
-            );
-
-            var component_arrays: [matching_archetypes.len][]filter.component = undefined;
-            var entitys: [matching_archetypes.len][]EntityPointer = undefined;
-            var buffer_len: usize = 0;
-
-            for (matching_archetypes) |archetype_type| {
-                if (self.archetype(archetype_type).tuple_array_list.count > 0) {
-                    component_arrays[buffer_len] = self.archetype(archetype_type).getItemArray(filter.component, comptime Components.id(filter.component));
-                    entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
-                    buffer_len += 1;
-                }
-            }
-
-            if (buffer_len == 0) {
-                return null;
-            }
-
-            return .init(component_arrays, entitys, @intCast(buffer_len));
+        pub fn getIterator(_: *Self, filter: Filter) ?Iterator(filter) {
+            @compileError("TODO");
+            // const matching_archetypes = comptime Archetypes.getMatching(
+            //     &.{filter.component},
+            //     filter.tags,
+            //     filter.exclude.components,
+            //     filter.exclude.tags,
+            // );
+            //
+            // var component_arrays: [matching_archetypes.len][]filter.component = undefined;
+            // var entitys: [matching_archetypes.len][]EntityPointer = undefined;
+            // var buffer_len: usize = 0;
+            //
+            // for (matching_archetypes) |archetype_type| {
+            //     if (self.archetype(archetype_type).tuple_array_list.count > 0) {
+            //         component_arrays[buffer_len] = self.archetype(archetype_type).getItemArray(filter.component, comptime Components.id(filter.component));
+            //         entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
+            //         buffer_len += 1;
+            //     }
+            // }
+            //
+            // if (buffer_len == 0) {
+            //     return null;
+            // }
+            //
+            // return .init(component_arrays, entitys, @intCast(buffer_len));
         }
 
         /// The unique tuple iterator type for this ecs.
@@ -559,39 +423,40 @@ pub fn Ecs(
 
         /// Gets a tuple iterator specified by the tuple filter.
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getTupleIterator(self: *Self, comptime filter: TupleFilter) ?TupleIterator(filter) {
-            const matching_archetypes = comptime Archetypes.getMatching(
-                filter.include.components,
-                filter.include.tags,
-                filter.exclude.components,
-                filter.exclude.tags,
-            );
-
-            var tuple_of_buffers: TupleOfBuffers(filter.include.components, matching_archetypes.len) = undefined;
-            var entitys: [matching_archetypes.len][]EntityPointer = undefined;
-            var buffer_len: usize = 0;
-
-            for (matching_archetypes) |archetype_type| {
-                if (self.archetype(archetype_type).tuple_array_list.count > 0) {
-                    entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
-
-                    inline for (filter.include.components, 0..) |component, j| {
-                        tuple_of_buffers[j][buffer_len] = self.archetype(archetype_type).getItemArray(component, comptime Components.id(component));
-                    }
-
-                    buffer_len += 1;
-                }
-            }
-
-            if (buffer_len == 0) {
-                return null;
-            }
-
-            return GenericTupleIterator(filter.include.components, matching_archetypes.len).init(tuple_of_buffers, entitys, @intCast(buffer_len));
+        pub fn getTupleIterator(_: *Self, comptime filter: TupleFilter) ?TupleIterator(filter) {
+            @compileError("TODO");
+            // const matching_archetypes = comptime Archetypes.getMatching(
+            //     filter.include.components,
+            //     filter.include.tags,
+            //     filter.exclude.components,
+            //     filter.exclude.tags,
+            // );
+            //
+            // var tuple_of_buffers: TupleOfBuffers(filter.include.components, matching_archetypes.len) = undefined;
+            // var entitys: [matching_archetypes.len][]EntityPointer = undefined;
+            // var buffer_len: usize = 0;
+            //
+            // for (matching_archetypes) |archetype_type| {
+            //     if (self.archetype(archetype_type).tuple_array_list.count > 0) {
+            //         entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
+            //
+            //         inline for (filter.include.components, 0..) |component, j| {
+            //             tuple_of_buffers[j][buffer_len] = self.archetype(archetype_type).getItemArray(component, comptime Components.id(component));
+            //         }
+            //
+            //         buffer_len += 1;
+            //     }
+            // }
+            //
+            // if (buffer_len == 0) {
+            //     return null;
+            // }
+            //
+            // return GenericTupleIterator(filter.include.components, matching_archetypes.len).init(tuple_of_buffers, entitys, @intCast(buffer_len));
         }
 
         /// Creates a singleton that has the specified requirments.
-        pub fn createSingleton(self: *Self, comptime requirements: Template) SingletonType {
+        pub fn createSingleton(_: *Self, comptime requirements: Template) SingletonType {
             const component_bitset: Components.Bitset = comptime Components.bitset(requirements.components);
             const tag_bitset: Tags.Bitset = comptime Tags.bitset(requirements.tags);
 
@@ -610,112 +475,125 @@ pub fn Ecs(
                 @compileError("No matching archetype.");
             }
 
-            self.singletons.append(self.allocator, .{ component_bitset, tag_bitset }) catch unreachable;
-            return SingletonType.make(@intCast(self.singletons.items.len - 1));
+            @compileError("TODO");
+
+            // self.singletons.append(self.allocator, .{ component_bitset, tag_bitset }) catch unreachable;
+            // return SingletonType.make(@intCast(self.singletons.items.len - 1));
         }
 
         /// Sets the singleton to point to an entity if the entity matches the singletons requirments.
         /// If the entity's components or tags change and it no longer matches the singletons requirments the entity will be cleared.
-        pub fn setSingletonsEntity(self: *Self, singleton_type: SingletonType, entity_ptr: EntityPointer) !void {
-            std.debug.assert(self.entityIsValid(entity_ptr));
-            std.debug.assert(singleton_type.value() < self.singletons.items.len);
-
-            const component_bitset, const tag_bitset = self.singleton(singleton_type);
-
-            const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-
-            if (self.archetype(archetype_type).component_bitset.supersetOf(component_bitset) and
-                self.archetype(archetype_type).tag_bitset.supersetOf(tag_bitset))
-            {
-                return self.singleton_to_entity_map.put(self.allocator, singleton_type, entity_ptr) catch @panic("OOM");
-            }
-
-            return error.EntityNotMatchRequirments;
+        pub fn setSingletonsEntity(_: *Self, _: SingletonType, _: EntityPointer) !void {
+            // std.debug.assert(self.entityIsValid(entity_ptr));
+            // std.debug.assert(singleton_type.value() < self.singletons.items.len);
+            //
+            // const component_bitset, const tag_bitset = self.singleton(singleton_type);
+            //
+            // const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
+            //
+            // if (self.archetype(archetype_type).component_bitset.supersetOf(component_bitset) and
+            //     self.archetype(archetype_type).tag_bitset.supersetOf(tag_bitset))
+            // {
+            //     return self.singleton_to_entity_map.put(self.allocator, singleton_type, entity_ptr) catch @panic("OOM");
+            // }
+            //
+            // return error.EntityNotMatchRequirments;
+            //
+            @compileError("TODO");
         }
 
         /// Clears the set entity from the singleton.
-        pub fn clearSingletonsEntity(self: *Self, singleton_type: SingletonType) void {
-            std.debug.assert(self.singleton_to_entity_map.remove(singleton_type));
+        pub fn clearSingletonsEntity(_: *Self, _: SingletonType) void {
+            @compileError("TODO");
+            // std.debug.assert(self.singleton_to_entity_map.remove(singleton_type));
         }
 
         // FIXME: entity might not be in the archetype anymore!
 
         /// Gets the entity that is pointed by the singleton.
-        pub fn getSingletonsEntity(self: *Self, singleton_type: SingletonType) ?EntityPointer {
-            std.debug.assert(singleton_type.value() < self.singletons.items.len);
-
-            if (self.singleton_to_entity_map.get(singleton_type)) |entity| {
-                if (self.entityIsValid(entity)) {
-                    return entity;
-                }
-
-                std.debug.assert(self.singleton_to_entity_map.remove(singleton_type));
-            }
-
-            return null;
+        pub fn getSingletonsEntity(_: *Self, _: SingletonType) ?EntityPointer {
+            @compileError("TODO");
+            // std.debug.assert(singleton_type.value() < self.singletons.items.len);
+            //
+            // if (self.singleton_to_entity_map.get(singleton_type)) |entity| {
+            //     if (self.entityIsValid(entity)) {
+            //         return entity;
+            //     }
+            //
+            //     std.debug.assert(self.singleton_to_entity_map.remove(singleton_type));
+            // }
+            //
+            // return null;
         }
 
         pub fn createLink(
-            self: *Self,
-            comptime name: []const u8,
-            source: EntityPointer,
-            desination: EntityPointer,
-            value: anytype,
+            _: *Self,
+            comptime _: []const u8,
+            _: EntityPointer,
+            _: EntityPointer,
+            _: anytype,
         ) !void {
-            const component_bitset = @field(self.links, name).component_bitset;
-            const tag_bitset = @field(self.links, name).tag_bitset;
+            @compileError("TODO");
 
-            inline for (.{ source, desination }) |entity| {
-                const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity.entity).?.archetype;
-
-                if (!self.archetype(archetype_type).component_bitset.supersetOf(component_bitset) or
-                    !self.archetype(archetype_type).tag_bitset.supersetOf(tag_bitset))
-                {
-                    return error.EntityNotMatchRequirments;
-                }
-            }
-
-            try @field(self.links, name).create(self.allocator, source, desination, value);
+            // const component_bitset = @field(self.links, name).component_bitset;
+            // const tag_bitset = @field(self.links, name).tag_bitset;
+            //
+            // inline for (.{ source, desination }) |entity| {
+            //     const archetype_type: ArchetypeType = self.entity_to_archetype_map.get(entity.entity).?.archetype;
+            //
+            //     if (!self.archetype(archetype_type).component_bitset.supersetOf(component_bitset) or
+            //         !self.archetype(archetype_type).tag_bitset.supersetOf(tag_bitset))
+            //     {
+            //         return error.EntityNotMatchRequirments;
+            //     }
+            // }
+            //
+            // try @field(self.links, name).create(self.allocator, source, desination, value);
         }
 
-        pub fn linksBySource(self: *const Self, comptime name: []const u8, src: EntityType) []const usize {
-            @field(self.links, name).linksBySource(src);
+        pub fn linksBySource(_: *const Self, comptime _: []const u8, _: EntityType) []const usize {
+            @compileError("TODO");
+            // @field(self.links, name).linksBySource(src);
         }
 
-        pub fn linksByDestination(self: *const Self, comptime name: []const u8, dst: EntityType) []const usize {
-            @field(self.links, name).linksByDestination(dst);
+        pub fn linksByDestination(_: *const Self, comptime _: []const u8, _: EntityType) []const usize {
+            @compileError("TODO");
+            // @field(self.links, name).linksByDestination(dst);
         }
 
         pub fn destroyLink(
-            self: *Self,
-            comptime name: []const u8,
-            source: EntityPointer,
-            desination: EntityPointer,
+            _: *Self,
+            comptime _: []const u8,
+            _: EntityPointer,
+            _: EntityPointer,
         ) !void {
-            @field(self.links, name).destroy(self.allocator, @field(self.links, name).linkIndex(source, desination) orelse return error.LinkMissing);
+            @compileError("TODO");
+            // @field(self.links, name).destroy(self.allocator, @field(self.links, name).linkIndex(source, desination) orelse return error.LinkMissing);
         }
 
         pub fn destroyLinkByIndex(
-            self: *Self,
-            comptime name: []const u8,
-            index: usize,
+            _: *Self,
+            comptime _: []const u8,
+            _: usize,
         ) !void {
-            @field(self.links, name).destroy(self.allocator, index);
+            @compileError("TODO");
+            // @field(self.links, name).destroy(self.allocator, index);
         }
 
         pub fn getLinks(
-            self: *Self,
+            _: *Self,
             comptime name: []const u8,
         ) struct {
             sources: []const EntityPointer,
             destinations: []const EntityPointer,
             data: []const @FieldType(@FieldType(Self, "links"), name).InnerType,
         } {
-            return .{
-                .sources = @field(self.links, name).getSources(),
-                .destinations = @field(self.links, name).getDestinations(),
-                .data = @field(self.links, name).getData(),
-            };
+            @compileError("TODO");
+            // return .{
+            //     .sources = @field(self.links, name).getSources(),
+            //     .destinations = @field(self.links, name).getDestinations(),
+            //     .data = @field(self.links, name).getData(),
+            // };
         }
     };
 }
