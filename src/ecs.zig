@@ -10,7 +10,7 @@ const TupleFilter = @import("TupleFilter.zig");
 const Filter = @import("Filter.zig");
 const Registry = @import("registery.zig").Registry;
 
-const EcsHeader = @import("EcsHeader.zig");
+const MainHeader = @import("MainHeader.zig");
 const ArchetypeHeader = @import("ArchetypeHeader.zig");
 
 pub fn itoa(comptime value: anytype) [:0]const u8 {
@@ -215,13 +215,13 @@ pub fn Ecs(
                 }
             }
 
-            if (-EcsHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
+            if (-MainHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
                 @compileError("The assumption of zero padding between EcsHeader and ArchetypeHeaders doesn't hold.");
 
-            if (-(EcsHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
+            if (-(MainHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
                 @compileError("The assumption of zero padding after ArchetypeHeaders doesn't hold.");
 
-            var offset: u32 = @intCast(@sizeOf(EcsHeader) + (@sizeOf(ArchetypeHeader) * templates.len) + start_offsets + (entity_capacity * 5));
+            var offset: u32 = @intCast(MainHeader.size() + (ArchetypeHeader.size() * templates.len) + start_offsets + (entity_capacity * 5));
             inline for (Components.types[0..], 0..) |component, i| {
                 offset += -%offset & (@alignOf(component) - 1);
                 component_buffer_starts[i] = offset;
@@ -230,9 +230,9 @@ pub fn Ecs(
 
             const length = offset;
 
-            var value: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"16", length)).ptr };
-            value.ecs().length().* = length;
-            return value;
+            var ecs: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"16", length)).ptr };
+            ecs.main().length().* = length;
+            return ecs;
         }
 
         pub fn initFromSlice(_: []const u8, _: std.mem.Allocator) !Self {
@@ -240,17 +240,17 @@ pub fn Ecs(
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.ptr[0..self.ecs().length().*]);
+            allocator.free(self.ptr[0..self.main().length().*]);
         }
 
-        inline fn ecs(self: *Self) EcsHeader {
+        inline fn main(self: *Self) MainHeader {
             return .{ .ptr = self.ptr };
         }
 
         inline fn archetype(self: *Self, id: ArchetypeID) ArchetypeHeader {
             std.debug.assert(id.value() < templates.len);
 
-            return .{ .ptr = self.ptr + EcsHeader.size() + ArchetypeHeader.size() * id.value() };
+            return .{ .ptr = self.ptr + MainHeader.size() + ArchetypeHeader.size() * id.value() };
         }
 
         // inline fn singleton(_: *Self, _: SingletonType) Singleton {
