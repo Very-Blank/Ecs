@@ -71,12 +71,12 @@ pub const EntityPointer = struct {
 
 const MainHeader = Header(&.{
     Field{ .name = "length", .type = u32 },
-    Field{ .name = "entity_count", .type = u32 },
+    Field{ .name = "entity_count", .type = u32, .default_value_ptr = &@as(u32, 0) },
     Field{ .name = "entity_capacity", .type = u32 },
 }, 4);
 
 const ArchetypeHeader = Header(&.{
-    Field{ .name = "count", .type = u32 },
+    Field{ .name = "count", .type = u32, .default_value_ptr = &@as(u32, 0) },
     Field{ .name = "capacity", .type = u32 },
     Field{ .name = "component_offset", .type = u32 },
     Field{ .name = "entities_offset", .type = u32 },
@@ -84,6 +84,7 @@ const ArchetypeHeader = Header(&.{
     Field{ .name = "tag_bitset", .type = std.bit_set.IntegerBitSet(128) },
 }, 0);
 
+// FIXME: limit components to 128 and fix registery.
 pub fn Ecs(
     comptime templates: []const Template,
 ) type {
@@ -216,6 +217,15 @@ pub fn Ecs(
         };
 
         pub fn init(capacities: [templates.len]u32, allocator: std.mem.Allocator) !Self {
+            comptime if (-MainHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
+                @compileError("The assumption of zero padding in between EcsHeader and ArchetypeHeaders doesn't hold.");
+
+            comptime if (!(ArchetypeHeader.arrayable()))
+                @compileError("The assumption of zero padding in between ArchetypeHeaders doesn't hold.");
+
+            comptime if (-(MainHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
+                @compileError("The assumption of zero padding after ArchetypeHeaders doesn't hold.");
+
             var component_counts: [Components.types.len]u32 = .{0} ** Components.types.len;
             var component_buffer_starts: [Components.types.len]u32 = .{0} ** Components.types.len;
             var start_offsets: u32 = 0;
@@ -230,15 +240,6 @@ pub fn Ecs(
                 }
             }
 
-            comptime if (-MainHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
-                @compileError("The assumption of zero padding in between EcsHeader and ArchetypeHeaders doesn't hold.");
-
-            comptime if (!(ArchetypeHeader.arrayable()))
-                @compileError("The assumption of zero padding in between ArchetypeHeaders doesn't hold.");
-
-            comptime if (-(MainHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
-                @compileError("The assumption of zero padding after ArchetypeHeaders doesn't hold.");
-
             var offset: u32 = @intCast((comptime MainHeader.size() + (ArchetypeHeader.size() * templates.len)) + start_offsets + (entity_capacity * 5));
             inline for (Components.types[0..], 0..) |component, i| {
                 offset += -%offset & (@alignOf(component) - 1);
@@ -249,7 +250,24 @@ pub fn Ecs(
             const length = offset;
 
             var ecs: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"16", length)).ptr };
-            ecs.main().field("length").* = length;
+
+            ecs.main().write(.{
+                .length = length,
+                .entity_capacity = entity_capacity,
+            });
+
+            inline for (templates, 0..) |template, i| {
+                ecs.archetype(.make(i)).write(.{
+                    .capacity = capacities[i],
+                    .component_offset = 80085,
+                    .entities_offset = 80085,
+                    .component_bitset = comptime Components.bitset(template.components),
+                    .tag_bitset = comptime Tags.bitset(template.tags),
+                });
+            }
+
+            std.debug.print("{any}", .{@as([*]u32, @ptrCast(ecs.ptr))[0..20]});
+
             return ecs;
         }
 
@@ -268,7 +286,7 @@ pub fn Ecs(
         inline fn archetype(self: *Self, id: ArchetypeID) ArchetypeHeader {
             std.debug.assert(id.value() < templates.len);
 
-            return .{ .ptr = self.ptr + MainHeader.size() + ArchetypeHeader.size() * id.value() };
+            return .{ .ptr = self.ptr + (comptime MainHeader.size()) + (comptime ArchetypeHeader.size()) * id.value() };
         }
 
         // inline fn singleton(_: *Self, _: SingletonType) Singleton {

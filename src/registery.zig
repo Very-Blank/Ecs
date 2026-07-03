@@ -53,7 +53,7 @@ pub fn Registry(comptime templates: []const Template, comptime field: []const u8
             break :init init_types;
         };
 
-        pub const Bitset = std.bit_set.StaticBitSet(len);
+        pub const Bitset = std.bit_set.IntegerBitSet(128);
 
         pub fn bitset(comptime included_types: []const type) Bitset {
             var new_bitset: Bitset = .empty;
