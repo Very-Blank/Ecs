@@ -10,8 +10,8 @@ const TupleFilter = @import("TupleFilter.zig");
 const Filter = @import("Filter.zig");
 const Registry = @import("registery.zig").Registry;
 
-const MainHeader = @import("MainHeader.zig");
-const ArchetypeHeader = @import("ArchetypeHeader.zig");
+const Header = @import("header.zig").Header;
+const Field = @import("header.zig").Field;
 
 pub fn itoa(comptime value: anytype) [:0]const u8 {
     comptime var string: [:0]const u8 = "";
@@ -68,6 +68,21 @@ pub const EntityPointer = struct {
         return self.entity == other.entity and self.generation == other.generation;
     }
 };
+
+const MainHeader = Header(&.{
+    Field{ .name = "length", .type = u32 },
+    Field{ .name = "entity_count", .type = u32 },
+    Field{ .name = "entity_capacity", .type = u32 },
+}, 4);
+
+const ArchetypeHeader = Header(&.{
+    Field{ .name = "count", .type = u32 },
+    Field{ .name = "capacity", .type = u32 },
+    Field{ .name = "component_offset", .type = u32 },
+    Field{ .name = "entities_offset", .type = u32 },
+    Field{ .name = "component_bitset", .type = std.bit_set.IntegerBitSet(128) },
+    Field{ .name = "tag_bitset", .type = std.bit_set.IntegerBitSet(128) },
+}, 0);
 
 pub fn Ecs(
     comptime templates: []const Template,
@@ -215,13 +230,16 @@ pub fn Ecs(
                 }
             }
 
-            if (-MainHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
-                @compileError("The assumption of zero padding between EcsHeader and ArchetypeHeaders doesn't hold.");
+            comptime if (-MainHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
+                @compileError("The assumption of zero padding in between EcsHeader and ArchetypeHeaders doesn't hold.");
 
-            if (-(MainHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
+            comptime if (!(ArchetypeHeader.arrayable()))
+                @compileError("The assumption of zero padding in between ArchetypeHeaders doesn't hold.");
+
+            comptime if (-(MainHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
                 @compileError("The assumption of zero padding after ArchetypeHeaders doesn't hold.");
 
-            var offset: u32 = @intCast(MainHeader.size() + (ArchetypeHeader.size() * templates.len) + start_offsets + (entity_capacity * 5));
+            var offset: u32 = @intCast((comptime MainHeader.size() + (ArchetypeHeader.size() * templates.len)) + start_offsets + (entity_capacity * 5));
             inline for (Components.types[0..], 0..) |component, i| {
                 offset += -%offset & (@alignOf(component) - 1);
                 component_buffer_starts[i] = offset;
@@ -231,7 +249,7 @@ pub fn Ecs(
             const length = offset;
 
             var ecs: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"16", length)).ptr };
-            ecs.main().length().* = length;
+            ecs.main().field("length").* = length;
             return ecs;
         }
 
@@ -240,7 +258,7 @@ pub fn Ecs(
         }
 
         pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
-            allocator.free(self.ptr[0..self.main().length().*]);
+            allocator.free(self.ptr[0..self.main().field("length").*]);
         }
 
         inline fn main(self: *Self) MainHeader {
