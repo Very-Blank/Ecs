@@ -15,8 +15,8 @@ Building it at compile time means:
 The ECS is laid out as a single contiguous allocation (? Means it's compile time
 known length):
 
-1. [EcsHeader](src/EcsHeader.zig)
-2. `[?]` [ArchetypeHeader](src/ArchetypeHeader.zig)
+1. `EcsHeader`
+2. `[?] ArchetypeHeader`
 3. `[?][?]Offsets (u32)`
 4. `[]Sparse (u32)`
 5. `[]Archetype (u32)`

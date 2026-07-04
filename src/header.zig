@@ -82,7 +82,7 @@ pub fn Header(
             );
         }
 
-        pub inline fn write(self: Self, values: @Struct(
+        pub fn write(self: Self, values: @Struct(
             .auto,
             null,
             &(names: {
@@ -123,23 +123,27 @@ pub fn Header(
         }
 
         pub inline fn size() comptime_int {
-            var sum = padding;
+            return comptime init: {
+                var sum = padding;
 
-            for (fields) |capture|
-                sum += @sizeOf(capture.type);
+                for (fields) |capture|
+                    sum += @sizeOf(capture.type);
 
-            return sum;
+                break :init sum;
+            };
         }
 
         pub inline fn alignment() comptime_int {
-            var largest = 1;
+            return comptime init: {
+                var largest = 1;
 
-            for (fields) |capture|
-                if (largest < @alignOf(capture.type)) {
-                    largest = @alignOf(capture.type);
-                };
+                for (fields) |capture|
+                    if (largest < @alignOf(capture.type)) {
+                        largest = @alignOf(capture.type);
+                    };
 
-            return largest;
+                break :init largest;
+            };
         }
     };
 }

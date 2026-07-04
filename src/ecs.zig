@@ -60,6 +60,9 @@ pub const ArchetypeID = NonExhaustiveEnum(u32, opaque {});
 pub const Row = NonExhaustiveEnum(u32, opaque {});
 pub const DenseIndex = NonExhaustiveEnum(u32, opaque {});
 
+pub const ComponentID = NonExhaustiveEnum(u32, opaque {});
+pub const TagID = NonExhaustiveEnum(u32, opaque {});
+
 pub const EntityPointer = struct {
     entity: EntityID,
     generation: Generation,
@@ -80,8 +83,8 @@ const ArchetypeHeader = Header(&.{
     Field{ .name = "capacity", .type = u32 },
     Field{ .name = "component_offset", .type = u32 },
     Field{ .name = "entities_offset", .type = u32 },
-    Field{ .name = "component_bitset", .type = std.bit_set.IntegerBitSet(128) },
-    Field{ .name = "tag_bitset", .type = std.bit_set.IntegerBitSet(128) },
+    // Field{ .name = "component_bitset", .type = std.bit_set.IntegerBitSet(128) },
+    // Field{ .name = "tag_bitset", .type = std.bit_set.IntegerBitSet(128) },
 }, 0);
 
 // FIXME: limit components to 128 and fix registery.
@@ -123,7 +126,7 @@ pub fn Ecs(
     }
 
     return struct {
-        ptr: [*]align(16) u8,
+        ptr: [*]align(4) u8,
 
         const Self = @This();
 
@@ -134,6 +137,10 @@ pub fn Ecs(
         pub const Tags = Registry(templates, "tags");
 
         pub const Archetypes = struct {
+            const ComponentID: []const []const u32 = .{};
+            const ComponentBitsets: []const Components.Bitset = .{};
+            const TagBitsets: []const Tags.Bitset = .{};
+
             pub fn getByBitset(component_bitset: Components.Bitset, tag_bitset: Tags.Bitset) !ArchetypeID {
                 for (templates, 0..) |template, i| {
                     if (Components.bitset(template.components) == component_bitset and tag_bitset == Tags.bitset(template.components)) return .make(i);
@@ -249,7 +256,7 @@ pub fn Ecs(
 
             const length = offset;
 
-            var ecs: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"16", length)).ptr };
+            var ecs: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"4", length)).ptr };
 
             ecs.main().write(.{
                 .length = length,
@@ -286,7 +293,7 @@ pub fn Ecs(
         inline fn archetype(self: *Self, id: ArchetypeID) ArchetypeHeader {
             std.debug.assert(id.value() < templates.len);
 
-            return .{ .ptr = self.ptr + (comptime MainHeader.size()) + (comptime ArchetypeHeader.size()) * id.value() };
+            return .{ .ptr = self.ptr + MainHeader.size() + ArchetypeHeader.size() * id.value() };
         }
 
         // inline fn singleton(_: *Self, _: SingletonType) Singleton {
