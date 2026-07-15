@@ -13,22 +13,6 @@ const Registry = @import("registery.zig").Registry;
 const Header = @import("header.zig").Header;
 const Field = @import("header.zig").Field;
 
-pub fn itoa(comptime value: anytype) [:0]const u8 {
-    comptime var string: [:0]const u8 = "";
-    comptime var num = value;
-
-    if (num == 0) {
-        string = string ++ .{'0'};
-    } else {
-        while (num != 0) {
-            string = .{'0' + (num % 10)} ++ string;
-            num = num / 10;
-        }
-    }
-
-    return string;
-}
-
 pub fn NonExhaustiveEnum(comptime T: type, comptime Unique: type) type {
     switch (@typeInfo(T)) {
         .int => |info| if (info.signedness != .unsigned) {},
@@ -91,36 +75,57 @@ const ArchetypeHeader = Header(&.{
 pub fn Ecs(
     comptime templates: []const Template,
 ) type {
-    if (templates.len == 0) {
+    if (templates.len == 0)
         @compileError("Was called with an empty template array.");
-    }
 
     for (templates, 0..) |template, i| {
         for (i + 1..templates.len) |j| {
-            if (template.eql(templates[j])) @compileError("Two templates where the same which is not allowed. Template one index: " ++ itoa(i) ++ ", template two index: " ++ itoa(j));
+            if (template.eql(templates[j])) @compileError(
+                std.fmt.comptimePrint(
+                    "Two templates where the same which is not allowed. Template one index: {d}, template two index: {d}",
+                    .{ i, j },
+                ),
+            );
         }
     }
 
     for (templates, 0..) |template, i| {
-        if (template.components.len == 0) @compileError("Template components was empty, which is not allowed. Template index: " ++ itoa(i) ++ ".");
+        if (template.components.len == 0) @compileError(
+            std.fmt.comptimePrint(
+                "Template components array was empty, which is not allowed. Template index: {d}.",
+                .{i},
+            ),
+        );
 
         for (0..template.components.len) |cur_component_index| {
             if (@sizeOf(template.components[cur_component_index]) == 0)
-                @compileError("Templates component was a ZST, which is not allowed. Template index: " ++ itoa(cur_component_index) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
+                @compileError(std.fmt.comptimePrint(
+                    "Templates component was a ZST, which is not allowed. Template index: {d}, component: {s}",
+                    .{ cur_component_index, @typeName(template.components[cur_component_index]) },
+                ));
 
             for (cur_component_index + 1..template.components.len) |nex_component_index| {
                 if (template.components[cur_component_index] == template.components[nex_component_index])
-                    @compileError("Template had two of the same component. Template index: " ++ itoa(i) ++ ", component: " ++ @typeName(template.components[cur_component_index]));
+                    @compileError(std.fmt.comptimePrint(
+                        "Template had two of the same component. Template index: {d}, component: {s}",
+                        .{ i, @typeName(template.components[cur_component_index]) },
+                    ));
             }
         }
 
         for (0..template.tags.len) |cur_tag_index| {
             if (@sizeOf(template.tags[cur_tag_index]) != 0)
-                @compileError("Templates tag wasn't a ZST, which is not allowed. Template index: " ++ itoa(cur_tag_index) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
+                @compileError(std.fmt.comptimePrint(
+                    "Templates tag wasn't a ZST, which is not allowed. Template index: {d}, tag: {s}",
+                    .{ cur_tag_index, @typeName(template.tags[cur_tag_index]) },
+                ));
 
             for (cur_tag_index + 1..template.tags.len) |nex_tag_index| {
                 if (template.tags[cur_tag_index] == template.tags[nex_tag_index])
-                    @compileError("Template had two of the same tag. Template index: " ++ itoa(i) ++ ", tag: " ++ @typeName(template.tags[cur_tag_index]));
+                    @compileError(std.fmt.comptimePrint(
+                        "Template had two of the same tag. Template index: {d}, tag: {s}",
+                        .{ i, @typeName(template.tags[cur_tag_index]) },
+                    ));
             }
         }
     }
@@ -132,16 +137,14 @@ pub fn Ecs(
 
         pub const Singleton = struct { Components.Bitset, Tags.Bitset };
 
-        pub const Components = Registry(templates, "components");
+        pub const Components = Registry(ComponentID, .component, templates);
 
-        pub const Tags = Registry(templates, "tags");
+        pub const Tags = Registry(TagID, .tag, templates);
 
         pub const Archetypes = struct {
-            const ComponentID: []const []const u32 = .{};
-            const ComponentBitsets: []const Components.Bitset = .{};
-            const TagBitsets: []const Tags.Bitset = .{};
-
             pub fn getByBitset(component_bitset: Components.Bitset, tag_bitset: Tags.Bitset) !ArchetypeID {
+                if (!@inComptime()) @compileError("Must be called in comptime.");
+
                 for (templates, 0..) |template, i| {
                     if (Components.bitset(template.components) == component_bitset and tag_bitset == Tags.bitset(template.components)) return .make(i);
                 }
@@ -150,6 +153,8 @@ pub fn Ecs(
             }
 
             pub fn getByTemplate(other: Template) !ArchetypeID {
+                if (!@inComptime()) @compileError("Must be called in comptime.");
+
                 for (templates, 0..) |template, i| {
                     if (template.eql(other)) return .make(i);
                 }
@@ -163,6 +168,8 @@ pub fn Ecs(
                 exclude_components: []const type,
                 exclude_tags: []const type,
             ) usize {
+                if (!@inComptime()) @compileError("Must be called in comptime.");
+
                 const component_bitset: Components.Bitset = Components.bitset(include_components);
                 const tag_bitset: Tags.Bitset = Tags.bitset(include_tags);
 
@@ -193,6 +200,8 @@ pub fn Ecs(
                 exclude_components: []const type,
                 exclude_tags: []const type,
             ) [matchingCount(include_components, include_tags, exclude_components, exclude_tags)]ArchetypeID {
+                if (!@inComptime()) @compileError("Must be called in comptime.");
+
                 const component_bitset: Components.Bitset = Components.bitset(include_components);
                 const tag_bitset: Tags.Bitset = Tags.bitset(include_tags);
 
@@ -243,7 +252,7 @@ pub fn Ecs(
                 start_offsets += template.components.len;
 
                 inline for (template.components) |component| {
-                    component_counts[comptime Components.id(component)] += capacities[i];
+                    component_counts[comptime Components.id(component).value()] += capacities[i];
                 }
             }
 
@@ -263,17 +272,52 @@ pub fn Ecs(
                 .entity_capacity = entity_capacity,
             });
 
+            var current_component_offset: u32 = @intCast(comptime (MainHeader.size() + (ArchetypeHeader.size() * templates.len)));
+            var current_entity_offset: u32 = @intCast((comptime MainHeader.size() + (ArchetypeHeader.size() * templates.len)) + start_offsets + (entity_capacity * 4));
+
             inline for (templates, 0..) |template, i| {
+                const capacity = capacities[i];
+
+                const ids: [template.components.len]ComponentID = comptime init: {
+                    var ids: [template.components.len]ComponentID = undefined;
+
+                    for (template.components, 0..) |Component, j| {
+                        ids[j] = Components.id(Component);
+                    }
+
+                    std.mem.sort(ComponentID, &ids, {}, struct {
+                        fn lessThan(_: void, a: ComponentID, b: ComponentID) bool {
+                            return a.value() < b.value();
+                        }
+                    }.lessThan);
+
+                    break :init ids;
+                };
+
+                var offsets: [template.components.len]u32 = init: {
+                    var offsets: [template.components.len]u32 = undefined;
+                    for (ids, 0..) |id, j| {
+                        offsets[j] = component_buffer_starts[id.value()];
+                        component_buffer_starts[id.value()] += capacity;
+                    }
+
+                    break :init offsets;
+                };
+
+                @memcpy(
+                    ecs.ptr[current_component_offset..length][0 .. offsets.len * @sizeOf(u32)],
+                    std.mem.asBytes(&offsets),
+                );
+
                 ecs.archetype(.make(i)).write(.{
                     .capacity = capacities[i],
-                    .component_offset = 80085,
-                    .entities_offset = 80085,
-                    .component_bitset = comptime Components.bitset(template.components),
-                    .tag_bitset = comptime Tags.bitset(template.tags),
+                    .component_offset = current_component_offset,
+                    .entities_offset = current_entity_offset,
                 });
-            }
 
-            std.debug.print("{any}", .{@as([*]u32, @ptrCast(ecs.ptr))[0..20]});
+                current_component_offset += template.components.len;
+                current_entity_offset += capacity;
+            }
 
             return ecs;
         }
@@ -307,10 +351,11 @@ pub fn Ecs(
 
         /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
         /// If any iterators include the archetype in it's buffer's, using those iterators is undefiend behaviour.
-        pub fn createEntity(_: *Self, _: anytype, comptime _: []const type) EntityPointer {
-            @compileError("TODO");
-            // const template: Template = .{ .components = &comptime help.typesFromTuple(@TypeOf(components)), .tags = tags };
-            // const entity_archetype: ArchetypeType = comptime Archetypes.getByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
+        pub fn createEntity(self: *Self, components: anytype, comptime tags: []const type) EntityPointer {
+            const template: Template = .{ .components = &comptime help.typesFromTuple(@TypeOf(components)), .tags = tags };
+            const entity_archetype: ArchetypeID = comptime Archetypes.getByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
+
+            self.archetype(entity_archetype).field("count").* += 1;
 
             // const new_entity_ptr: EntityPointer = init: {
             //     if (self.unused_entitys.items.len > 0) {
@@ -321,7 +366,7 @@ pub fn Ecs(
             //     self.entity_count += 1;
             //     break :init .{ .entity = EntityType.make(self.entity_count - 1), .generation = GenerationType.make(0) };
             // };
-
+            //
             // self.setEntity(
             //     templates[entity_archetype.value()].components,
             //     new_entity_ptr,
@@ -332,7 +377,8 @@ pub fn Ecs(
             //     entity_archetype,
             // );
             //
-            // return new_entity_ptr;
+
+            return .{ .entity = .make(0), .generation = .make(0) };
         }
 
         /// Marks the entity to be removed in the next clearDestroyedEntitys call.
@@ -653,9 +699,14 @@ pub fn Ecs(
 test "Init" {
     const allocator = std.testing.allocator;
 
-    const Data = struct { x: u16 };
-    const EcsType = Ecs(&.{Template{ .components = &.{Data} }});
+    const DataX = struct { x: u32 };
+    const DataY = struct { y: u32 };
+    const EcsType = Ecs(&.{ Template{ .components = &.{ DataX, DataY } }, Template{ .components = &.{DataX} } });
 
-    var ecs: EcsType = try .init(.{10}, allocator);
+    var ecs: EcsType = try .init(.{ 100, 10 }, allocator);
+    _ = ecs.createEntity(.{ DataX{ .x = 10 }, DataY{ .y = 10 } }, &.{});
+
+    std.debug.print("{any}", .{@as([*]u32, @ptrCast(ecs.ptr))[0..200]});
+
     ecs.deinit(allocator);
 }

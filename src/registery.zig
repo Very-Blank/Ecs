@@ -1,9 +1,13 @@
 const std = @import("std");
 const ecs = @import("ecs.zig");
+
 const Template = @import("Template.zig");
 
-pub fn Registry(comptime IDType: type, comptime templates: []const Template, comptime @"type": enum { component, tag }) type {
-    const field = if (@"type" == .component) "component" else "tag";
+pub fn Registry(comptime IDType: type, comptime @"type": enum { component, tag }, comptime templates: []const Template) type {
+    const field = switch (@"type") {
+        .component => "components",
+        .tag => "tags",
+    };
 
     ok: {
         switch (@typeInfo(IDType)) {
@@ -33,15 +37,17 @@ pub fn Registry(comptime IDType: type, comptime templates: []const Template, com
     };
 
     return struct {
+        pub const Bitset: type = std.bit_set.StaticBitSet(len);
+
         pub const types: [len]type = init: {
             var new_types: [len]type = undefined;
 
             var i = 0;
 
             for (templates) |template| {
-                inner: for (@field(template, field)) |T| {
+                outer: for (@field(template, field)) |T| {
                     for (0..i) |j| {
-                        if (T == new_types[j]) continue :inner;
+                        if (T == new_types[j]) continue :outer;
                     }
 
                     if (len <= i) @compileError("Length calculation logic incorrect.");
@@ -54,26 +60,47 @@ pub fn Registry(comptime IDType: type, comptime templates: []const Template, com
             break :init new_types;
         };
 
-        pub const Bitset = std.bit_set.StaticBitSet(len);
+        pub const sizes: switch (@"type") {
+            .component => [len]usize,
+            .tag => void,
+        } = switch (@"type") {
+            .component => init: {
+                var new_sizes: [len]usize = .{0} ** len;
+                for (types, 0..) |Item, i| {
+                    new_sizes[i] = @sizeOf(Item);
+                }
 
-        pub fn bitset(comptime included_types: []const type) Bitset {
+                break :init new_sizes;
+            },
+            .tag => {},
+        };
+
+        pub const bitsets: [templates.len]Bitset = init: {
+            var new_bitsets: [templates.len]Bitset = .{.empty} ** templates.len;
+
+            for (templates, 0..) |template, i| {
+                new_bitsets[i] = bitset(@field(template, field));
+            }
+
+            break :init new_bitsets;
+        };
+
+        pub fn bitset(comptime included: []const type) Bitset {
             if (!@inComptime()) @compileError("Must be called in comptime.");
 
             var new_bitset: Bitset = .empty;
 
-            outer: for (included_types) |Item| {
-                for (types, 0..) |ExistingItem, i| {
-                    if (ExistingItem == Item) {
-                        if (new_bitset.isSet(i)) {
-                            @compileError(.{std.ascii.toUpper(field[0])} ++ field[1..field.len] ++ " had two of the same " ++ field[0 .. field.len - 1] ++ " " ++ @typeName(@"type") ++ ", Which is not allowed.");
-                        }
+            for (included) |Item| {
+                const index = @intFromEnum(id(Item));
 
-                        new_bitset.set(i);
-                        continue :outer;
-                    }
+                if (new_bitset.isSet(index)) {
+                    @compileError(std.fmt.comptimePrint(
+                        "{s} registery had two of the same item named: {s}, which is not allowed.",
+                        .{ if (@"type" == .component) "Component" else "Tags", @typeName(Item) },
+                    ));
                 }
 
-                @compileError("Was given a " ++ field[0 .. field.len - 1] ++ ": " ++ @typeName(@"type") ++ ", that wasn't known by the registery.");
+                new_bitset.set(index);
             }
 
             return new_bitset;
@@ -82,13 +109,16 @@ pub fn Registry(comptime IDType: type, comptime templates: []const Template, com
         pub fn id(comptime Item: type) IDType {
             if (!@inComptime()) @compileError("Must be called in comptime.");
 
-            for (types, 0..) |ExistingComponent, i| {
-                if (ExistingComponent == Item) {
+            for (types, 0..) |Existing, i| {
+                if (Existing == Item) {
                     return @enumFromInt(i);
                 }
             }
 
-            @compileError("Was given a " ++ field[0 .. field.len - 1] ++ ": " ++ @typeName(Item) ++ ", that wasn't known by the registery.");
+            @compileError(std.fmt.comptimePrint(
+                "{s} registery was given item named: {s}, which was not known by the registery.\nMeaning it wasn't in any of the given templates.",
+                .{ if (@"type" == .component) "Component" else "Tags", @typeName(Item) },
+            ));
         }
     };
 }
