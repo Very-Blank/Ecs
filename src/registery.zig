@@ -76,7 +76,7 @@ pub fn Registry(comptime IDType: type, comptime @"type": enum { component, tag }
         };
 
         pub const bitsets: [templates.len]Bitset = init: {
-            var new_bitsets: [templates.len]Bitset = .{.empty} ** templates.len;
+            var new_bitsets: [templates.len]Bitset = .{Bitset.empty} ** templates.len;
 
             for (templates, 0..) |template, i| {
                 new_bitsets[i] = bitset(@field(template, field));

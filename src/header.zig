@@ -9,8 +9,8 @@ pub const Field = struct {
 /// Padding is added to the very end.
 /// Headers are forced to have no padding in between field members.
 pub fn Header(
-    fields: []const Field,
-    padding: comptime_int,
+    comptime fields: []const Field,
+    comptime padding: comptime_int,
 ) type {
     for (0..fields.len) |i| {
         for (i + 1..fields.len) |j| {

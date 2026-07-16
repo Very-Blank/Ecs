@@ -13,6 +13,9 @@ const Registry = @import("registery.zig").Registry;
 const Header = @import("header.zig").Header;
 const Field = @import("header.zig").Field;
 
+const Layout = @import("layout.zig").Layout;
+const Region = @import("layout.zig").Region;
+
 pub fn NonExhaustiveEnum(comptime T: type, comptime Unique: type) type {
     switch (@typeInfo(T)) {
         .int => |info| if (info.signedness != .unsigned) {},
@@ -32,8 +35,12 @@ pub fn NonExhaustiveEnum(comptime T: type, comptime Unique: type) type {
             return @enumFromInt(int);
         }
 
-        pub inline fn value(@"enum": Self) T {
-            return @intFromEnum(@"enum");
+        pub inline fn value(self: Self) T {
+            return @intFromEnum(self);
+        }
+
+        pub inline fn next(self: Self) Self {
+            return .make(value(self) + 1);
         }
     };
 }
@@ -42,7 +49,11 @@ pub const EntityID = NonExhaustiveEnum(u32, opaque {});
 pub const Generation = NonExhaustiveEnum(u32, opaque {});
 pub const ArchetypeID = NonExhaustiveEnum(u32, opaque {});
 pub const Row = NonExhaustiveEnum(u32, opaque {});
-pub const DenseIndex = NonExhaustiveEnum(u32, opaque {});
+pub const State = enum(u32) {
+    dead = 1,
+    zombie = 2,
+    alive = 3,
+};
 
 pub const ComponentID = NonExhaustiveEnum(u32, opaque {});
 pub const TagID = NonExhaustiveEnum(u32, opaque {});
@@ -60,7 +71,8 @@ const MainHeader = Header(&.{
     Field{ .name = "length", .type = u32 },
     Field{ .name = "entity_count", .type = u32, .default_value_ptr = &@as(u32, 0) },
     Field{ .name = "entity_capacity", .type = u32 },
-}, 4);
+    Field{ .name = "dead_entity_count", .type = u32, .default_value_ptr = &@as(u32, 0) },
+}, 0);
 
 const ArchetypeHeader = Header(&.{
     Field{ .name = "count", .type = u32, .default_value_ptr = &@as(u32, 0) },
@@ -71,7 +83,13 @@ const ArchetypeHeader = Header(&.{
     // Field{ .name = "tag_bitset", .type = std.bit_set.IntegerBitSet(128) },
 }, 0);
 
-// FIXME: limit components to 128 and fix registery.
+const EntityHeader = Header(&.{
+    Field{ .name = "archetype", .type = ArchetypeID },
+    Field{ .name = "row", .type = Row },
+    Field{ .name = "generation", .type = Generation },
+    Field{ .name = "state", .type = State },
+}, 0);
+
 pub fn Ecs(
     comptime templates: []const Template,
 ) type {
@@ -135,28 +153,45 @@ pub fn Ecs(
 
         const Self = @This();
 
-        pub const Singleton = struct { Components.Bitset, Tags.Bitset };
+        pub const Singleton = struct { component_registery.Bitset, tag_registery.Bitset };
 
-        pub const Components = Registry(ComponentID, .component, templates);
+        pub const layout = Layout(&.{
+            Region{
+                .name = "main",
+                .type_size = MainHeader.size(),
+                .aligment = MainHeader.alignment(),
+            },
+            Region{
+                .name = "archetypes",
+                .type_size = ArchetypeHeader.size(),
+                .aligment = ArchetypeHeader.alignment(),
+                .count = templates.len,
+            },
+            Region{ .name = "offsets", .type_size = @sizeOf(u32), .aligment = @alignOf(u32), .count = init: {
+                var sum = 0;
+                for (templates) |template|
+                    sum += template.components.len;
 
-        pub const Tags = Registry(TagID, .tag, templates);
+                break :init sum;
+            } },
+        });
+
+        const component_registery = Registry(ComponentID, .component, templates);
+        const tag_registery = Registry(TagID, .tag, templates);
 
         pub const Archetypes = struct {
-            pub fn getByBitset(component_bitset: Components.Bitset, tag_bitset: Tags.Bitset) !ArchetypeID {
+            pub fn getByTemplate(template: Template) !ArchetypeID {
                 if (!@inComptime()) @compileError("Must be called in comptime.");
 
-                for (templates, 0..) |template, i| {
-                    if (Components.bitset(template.components) == component_bitset and tag_bitset == Tags.bitset(template.components)) return .make(i);
-                }
+                const component_bitset: component_registery.Bitset = component_registery.bitset(template.components);
+                const tag_bitset: tag_registery.Bitset = tag_registery.bitset(template.tags);
 
-                return error.ArchetypeDoesNotExist;
-            }
-
-            pub fn getByTemplate(other: Template) !ArchetypeID {
-                if (!@inComptime()) @compileError("Must be called in comptime.");
-
-                for (templates, 0..) |template, i| {
-                    if (template.eql(other)) return .make(i);
+                for (0..templates.len) |i| {
+                    if (component_registery.bitsets[i].eql(component_bitset) and
+                        tag_registery.bitsets[i].eql(tag_bitset))
+                    {
+                        return .make(i);
+                    }
                 }
 
                 return error.ArchetypeDoesNotExist;
@@ -170,22 +205,19 @@ pub fn Ecs(
             ) usize {
                 if (!@inComptime()) @compileError("Must be called in comptime.");
 
-                const component_bitset: Components.Bitset = Components.bitset(include_components);
-                const tag_bitset: Tags.Bitset = Tags.bitset(include_tags);
+                const component_bitset: component_registery.Bitset = component_registery.bitset(include_components);
+                const tag_bitset: tag_registery.Bitset = tag_registery.bitset(include_tags);
 
-                const exclude_component_bitset: Components.Bitset = Components.bitset(exclude_components);
-                const exclude_tag_bitset: Tags.Bitset = Tags.bitset(exclude_tags);
+                const exclude_component_bitset: component_registery.Bitset = component_registery.bitset(exclude_components);
+                const exclude_tag_bitset: tag_registery.Bitset = tag_registery.bitset(exclude_tags);
 
                 var matching_archetype_count: usize = 0;
 
-                for (templates) |template| {
-                    const archetype_component_bitset = Components.bitset(template.components);
-                    const archetype_tag_bitset = Tags.bitset(template.tags);
-
-                    if (archetype_component_bitset.intersectWith(component_bitset).eql(component_bitset) and
-                        archetype_tag_bitset.intersectWith(tag_bitset).eql(tag_bitset) and
-                        archetype_component_bitset.intersectWith(exclude_component_bitset).eql(.empty) and
-                        archetype_tag_bitset.intersectWith(exclude_tag_bitset).eql(.empty))
+                for (0..templates.len) |i| {
+                    if (component_registery.bitsets[i].supersetOf(component_bitset) and
+                        tag_registery.bitsets[i].supersetOf(tag_bitset) and
+                        component_registery.bitsets[i].intersectWith(exclude_component_bitset).eql(.empty) and
+                        tag_registery.bitsets[i].intersectWith(exclude_tag_bitset).eql(.empty))
                     {
                         matching_archetype_count += 1;
                     }
@@ -202,11 +234,11 @@ pub fn Ecs(
             ) [matchingCount(include_components, include_tags, exclude_components, exclude_tags)]ArchetypeID {
                 if (!@inComptime()) @compileError("Must be called in comptime.");
 
-                const component_bitset: Components.Bitset = Components.bitset(include_components);
-                const tag_bitset: Tags.Bitset = Tags.bitset(include_tags);
+                const component_bitset: component_registery.Bitset = component_registery.bitset(include_components);
+                const tag_bitset: tag_registery.Bitset = tag_registery.bitset(include_tags);
 
-                const exclude_component_bitset: Components.Bitset = Components.bitset(exclude_components);
-                const exclude_tag_bitset: Tags.Bitset = Tags.bitset(exclude_tags);
+                const exclude_component_bitset: component_registery.Bitset = component_registery.bitset(exclude_components);
+                const exclude_tag_bitset: tag_registery.Bitset = tag_registery.bitset(exclude_tags);
 
                 const matching_archetype_count: usize = matchingCount(include_components, include_tags, exclude_components, exclude_tags);
                 if (matching_archetype_count == 0) @compileError("No matching archetypes with the supplied include and exclude.");
@@ -214,14 +246,11 @@ pub fn Ecs(
                 var archetype_indices: [matching_archetype_count]ArchetypeID = undefined;
 
                 var current_index = 0;
-                for (templates, 0..) |template, i| {
-                    const archetype_component_bitset = Components.bitset(template.components);
-                    const archetype_tag_bitset = Tags.bitset(template.tags);
-
-                    if (archetype_component_bitset.supersetOf(component_bitset) and
-                        archetype_tag_bitset.supersetOf(tag_bitset) and
-                        archetype_component_bitset.intersectWith(exclude_component_bitset).eql(.empty) and
-                        archetype_tag_bitset.intersectWith(exclude_tag_bitset).eql(.empty))
+                for (0..templates.len) |i| {
+                    if (component_registery.bitsets[i].supersetOf(component_bitset) and
+                        tag_registery.bitsets[i].supersetOf(tag_bitset) and
+                        component_registery.bitsets[i].intersectWith(exclude_component_bitset).eql(.empty) and
+                        tag_registery.bitsets[i].intersectWith(exclude_tag_bitset).eql(.empty))
                     {
                         archetype_indices[current_index] = .make(i);
                         current_index += 1;
@@ -233,31 +262,26 @@ pub fn Ecs(
         };
 
         pub fn init(capacities: [templates.len]u32, allocator: std.mem.Allocator) !Self {
-            comptime if (-MainHeader.size() & (ArchetypeHeader.alignment() - 1) != 0)
-                @compileError("The assumption of zero padding in between EcsHeader and ArchetypeHeaders doesn't hold.");
-
             comptime if (!(ArchetypeHeader.arrayable()))
                 @compileError("The assumption of zero padding in between ArchetypeHeaders doesn't hold.");
 
-            comptime if (-(MainHeader.size() + ArchetypeHeader.size() * @as(comptime_int, templates.len)) & (@alignOf(u32) - 1) != 0)
-                @compileError("The assumption of zero padding after ArchetypeHeaders doesn't hold.");
+            comptime if (!(EntityHeader.arrayable()))
+                @compileError("The assumption of zero padding in between EntityHeaders doesn't hold.");
 
-            var component_counts: [Components.types.len]u32 = .{0} ** Components.types.len;
-            var component_buffer_starts: [Components.types.len]u32 = .{0} ** Components.types.len;
-            var start_offsets: u32 = 0;
+            var component_counts: [component_registery.types.len]u32 = .{0} ** component_registery.types.len;
+            var component_buffer_starts: [component_registery.types.len]u32 = .{0} ** component_registery.types.len;
 
             var entity_capacity: u32 = 0;
             inline for (templates, 0..) |template, i| {
                 entity_capacity += capacities[i];
-                start_offsets += template.components.len;
-
                 inline for (template.components) |component| {
-                    component_counts[comptime Components.id(component).value()] += capacities[i];
+                    component_counts[comptime component_registery.id(component).value()] += capacities[i];
                 }
             }
 
-            var offset: u32 = @intCast((comptime MainHeader.size() + (ArchetypeHeader.size() * templates.len)) + start_offsets + (entity_capacity * 5));
-            inline for (Components.types[0..], 0..) |component, i| {
+            var offset: u32 = @intCast(layout.size() + ((EntityHeader.size() + @sizeOf(EntityID)) * entity_capacity));
+
+            inline for (component_registery.types[0..], 0..) |component, i| {
                 offset += -%offset & (@alignOf(component) - 1);
                 component_buffer_starts[i] = offset;
                 offset += component_counts[i];
@@ -272,8 +296,8 @@ pub fn Ecs(
                 .entity_capacity = entity_capacity,
             });
 
-            var current_component_offset: u32 = @intCast(comptime (MainHeader.size() + (ArchetypeHeader.size() * templates.len)));
-            var current_entity_offset: u32 = @intCast((comptime MainHeader.size() + (ArchetypeHeader.size() * templates.len)) + start_offsets + (entity_capacity * 4));
+            var current_component_offset: u32 = 0;
+            var current_entity_offset: u32 = 0;
 
             inline for (templates, 0..) |template, i| {
                 const capacity = capacities[i];
@@ -282,7 +306,7 @@ pub fn Ecs(
                     var ids: [template.components.len]ComponentID = undefined;
 
                     for (template.components, 0..) |Component, j| {
-                        ids[j] = Components.id(Component);
+                        ids[j] = component_registery.id(Component);
                     }
 
                     std.mem.sort(ComponentID, &ids, {}, struct {
@@ -294,19 +318,19 @@ pub fn Ecs(
                     break :init ids;
                 };
 
-                var offsets: [template.components.len]u32 = init: {
-                    var offsets: [template.components.len]u32 = undefined;
+                const buffer_offsets: [template.components.len]u32 = init: {
+                    var buffer_offsets: [template.components.len]u32 = undefined;
                     for (ids, 0..) |id, j| {
-                        offsets[j] = component_buffer_starts[id.value()];
+                        buffer_offsets[j] = component_buffer_starts[id.value()];
                         component_buffer_starts[id.value()] += capacity;
                     }
 
-                    break :init offsets;
+                    break :init buffer_offsets;
                 };
 
                 @memcpy(
-                    ecs.ptr[current_component_offset..length][0 .. offsets.len * @sizeOf(u32)],
-                    std.mem.asBytes(&offsets),
+                    (ecs.offsets() + current_component_offset)[0..buffer_offsets.len],
+                    &buffer_offsets,
                 );
 
                 ecs.archetype(.make(i)).write(.{
@@ -326,18 +350,36 @@ pub fn Ecs(
             @compileError("TODO");
         }
 
-        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
             allocator.free(self.ptr[0..self.main().field("length").*]);
         }
 
-        inline fn main(self: *Self) MainHeader {
-            return .{ .ptr = self.ptr };
+        inline fn main(self: Self) MainHeader {
+            return .{ .ptr = self.ptr + layout.regionStart("main") };
         }
 
-        inline fn archetype(self: *Self, id: ArchetypeID) ArchetypeHeader {
+        inline fn archetype(self: Self, id: ArchetypeID) ArchetypeHeader {
             std.debug.assert(id.value() < templates.len);
 
-            return .{ .ptr = self.ptr + MainHeader.size() + ArchetypeHeader.size() * id.value() };
+            return .{ .ptr = self.ptr + layout.regionStart("archetypes") + ArchetypeHeader.size() * id.value() };
+        }
+
+        inline fn offsets(self: Self) [*]u32 {
+            return @ptrCast(@alignCast(self.ptr + layout.regionStart("offsets")));
+        }
+
+        inline fn entity(self: Self, id: EntityID) EntityHeader {
+            std.debug.assert(id.value() < self.main().field("entity_capacity").*);
+
+            return .{ .ptr = self.ptr + layout.size() + (EntityHeader.size() * id.value()) };
+        }
+
+        inline fn entities(self: Self) [*]EntityID {
+            return @ptrCast(@alignCast(self.ptr + layout.size() + (self.main().field("entity_capacity").* * EntityHeader.size())));
+        }
+
+        inline fn buffers(self: Self) [*]u8 {
+            return self.ptr + layout.size() + (self.main().field("entity_capacity").* * (EntityHeader.size() + @sizeOf(EntityID)));
         }
 
         // inline fn singleton(_: *Self, _: SingletonType) Singleton {
@@ -345,51 +387,140 @@ pub fn Ecs(
         //     @compileError("TODO");
         // }
 
-        pub inline fn entityIsValid(_: *const Self, _: EntityPointer) bool {
-            @compileError("TODO");
+        pub inline fn entityIsValid(self: Self, entity_pointer: EntityPointer) bool {
+            const entity_header = self.entity(entity_pointer.entity);
+
+            return entity_header.field("state").* != .dead and entity_header.field("generation").* == entity_pointer.generation;
         }
 
         /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
-        /// If any iterators include the archetype in it's buffer's, using those iterators is undefiend behaviour.
-        pub fn createEntity(self: *Self, components: anytype, comptime tags: []const type) EntityPointer {
+        /// Iterators will not see the new entity.
+        pub fn createEntity(self: Self, components: anytype, comptime tags: []const type) EntityPointer {
             const template: Template = .{ .components = &comptime help.typesFromTuple(@TypeOf(components)), .tags = tags };
             const entity_archetype: ArchetypeID = comptime Archetypes.getByTemplate(template) catch @compileError("Archetype matching required components and tags didn't exist.");
 
-            self.archetype(entity_archetype).field("count").* += 1;
+            const new_entity_ptr: EntityPointer = init: {
+                if (self.main().field("dead_entity_count").* == 0) {
+                    if (self.main().field("entity_count").* == self.main().field("entity_capacity").*)
+                        @panic("ECS ran out of capacity.");
 
-            // const new_entity_ptr: EntityPointer = init: {
-            //     if (self.unused_entitys.items.len > 0) {
-            //         const entity_ptr = self.unused_entitys.pop().?;
-            //         break :init .{ .entity = entity_ptr.entity, .generation = GenerationType.make(entity_ptr.generation.value() + 1) };
-            //     }
-            //
-            //     self.entity_count += 1;
-            //     break :init .{ .entity = EntityType.make(self.entity_count - 1), .generation = GenerationType.make(0) };
-            // };
-            //
-            // self.setEntity(
-            //     templates[entity_archetype.value()].components,
-            //     new_entity_ptr,
-            //     if (comptime templates[entity_archetype.value()].orderEql(template, "components"))
-            //         components
-            //     else
-            //         help.translateTuples(template.components, components, templates[entity_archetype.value()].components),
-            //     entity_archetype,
-            // );
-            //
+                    const entity_id: EntityID = .make(self.main().field("entity_count").*);
+                    self.main().field("entity_count").* += 1;
 
-            return .{ .entity = .make(0), .generation = .make(0) };
+                    self.entity(entity_id).field("generation").* = Generation.make(0);
+
+                    break :init .{
+                        .entity = entity_id,
+                        .generation = .make(0),
+                    };
+                }
+
+                defer self.main().field("dead_entity_count").* -= 1;
+
+                // FIXME: Very bad access pattern.
+                var i: u32 = 0;
+                while (i < self.main().field("entity_count").* and self.entity(.make(i)).field("state").* != .dead) {
+                    i += 1;
+                }
+
+                // NOTE: Would mean that we didn't find any dead entity like dead_entity_count claimed there would be.
+                std.debug.assert(i < self.main().field("entity_count").*);
+
+                self.entity(.make(i)).field("generation").* = self.entity(.make(i)).field("generation").next();
+
+                break :init .{
+                    .entity = .make(i),
+                    .generation = self.entity(.make(i)).field("generation").*,
+                };
+            };
+
+            const entity_header: EntityHeader = self.entity(new_entity_ptr.entity);
+            const entity_archetype_header: ArchetypeHeader = self.archetype(entity_archetype);
+
+            if (entity_archetype_header.field("count").* == entity_archetype_header.field("capacity").*)
+                @panic("Archetype ran out of capacity");
+
+            const row: Row = .make(entity_archetype_header.field("count").*);
+
+            entity_header.field("state").* = .alive;
+            entity_header.field("archetype").* = entity_archetype;
+            entity_header.field("row").* = row;
+
+            const bitset: component_registery.Bitset = component_registery.bitsets[entity_archetype.value()];
+
+            inline for (template.components, 0..) |Component, i| {
+                const id: ComponentID = comptime component_registery.id(Component);
+
+                const index = init: {
+                    var iterator = bitset.iterator(.{});
+                    var j: u32 = 0;
+                    while (iterator.next()) |index| : (j += 1) {
+                        if (index == id.value()) break :init j;
+                    }
+
+                    unreachable;
+                };
+
+                const offset: u32 = self.offsets()[entity_archetype_header.field("component_offset").* + index];
+
+                @as([*]Component, @ptrCast(@alignCast(self.buffers() + offset)))[row.value()] = components[i];
+            }
+
+            (self.entities() + entity_archetype_header.field("entities_offset").*)[row.value()] = new_entity_ptr.entity;
+
+            entity_archetype_header.field("count").* += 1;
+
+            return new_entity_ptr;
         }
 
         /// Marks the entity to be removed in the next clearDestroyedEntitys call.
-        pub fn destroyEntity(_: *Self, _: EntityPointer) void {
-            @compileError("TODO");
+        pub fn destroyEntity(self: Self, entity_pointer: EntityPointer) void {
+            std.debug.assert(self.entityIsValid(entity_pointer));
+
+            const entity_header: EntityHeader = self.entity(entity_pointer.entity);
+            entity_header.field("state").* = .zombie;
         }
 
         /// Destroyes all entitys that where marked by destroyEntity.
         /// If any iterators include any of the destroyed entitys, using those iterators is undefiend behaviour.
-        pub fn clearDestroyedEntitys(_: *Self) void {
-            @compileError("TODO");
+        pub fn clearDestroyedEntitys(self: Self) void {
+            const entity_count = self.main().field("entity_count").*;
+
+            for (0..entity_count) |i| {
+                const entity_header = self.entity(.make(@intCast(i)));
+
+                if (entity_header.field("state").* == .zombie) {
+                    const entity_archetype_header: ArchetypeHeader = self.archetype(entity_header.field("archetype").*);
+
+                    if (entity_header.field("row").value() + 1 < entity_archetype_header.field("count").*) {
+                        const bitset: component_registery.Bitset = component_registery.bitsets[entity_header.field("archetype").value()];
+
+                        var iterator = bitset.iterator(.{});
+
+                        const target_row: Row = entity_header.field("row").*;
+                        const end_row: Row = .make(entity_archetype_header.field("count").* - 1);
+
+                        const end_entity: EntityID = (self.entities() + entity_archetype_header.field("entities_offset").*)[end_row.value()];
+
+                        self.entity(end_entity).field("row").* = target_row;
+
+                        while (iterator.next()) |index| {
+                            const component_size: usize = component_registery.sizes[index];
+
+                            const offset: u32 = self.offsets()[entity_archetype_header.field("component_offset").* + index];
+
+                            const target_slice: []u8 = (self.buffers() + offset + target_row.value() * component_size)[0..component_size];
+                            const end_slice: []u8 = (self.buffers() + offset + end_row.value() * component_size)[0..component_size];
+
+                            @memcpy(target_slice, end_slice);
+                        }
+                    }
+
+                    entity_archetype_header.field("count").* -= 1;
+
+                    entity_header.field("state").* = .dead;
+                }
+            }
         }
 
         /// Takes in a tag or a component and checks if the entity has it.
@@ -703,10 +834,13 @@ test "Init" {
     const DataY = struct { y: u32 };
     const EcsType = Ecs(&.{ Template{ .components = &.{ DataX, DataY } }, Template{ .components = &.{DataX} } });
 
-    var ecs: EcsType = try .init(.{ 100, 10 }, allocator);
-    _ = ecs.createEntity(.{ DataX{ .x = 10 }, DataY{ .y = 10 } }, &.{});
+    var ecs: EcsType = try .init(.{ 10, 10 }, allocator);
+    defer ecs.deinit(allocator);
+    const first = ecs.createEntity(.{ DataX{ .x = 1000010000 }, DataY{ .y = 1000010000 } }, &.{});
+    _ = ecs.createEntity(.{ DataX{ .x = 2000020000 }, DataY{ .y = 2000020000 } }, &.{});
+    ecs.destroyEntity(first);
+    std.debug.print("{any}\n", .{@as([*]u32, @ptrCast(ecs.ptr))[0..400]});
+    ecs.clearDestroyedEntitys();
 
-    std.debug.print("{any}", .{@as([*]u32, @ptrCast(ecs.ptr))[0..200]});
-
-    ecs.deinit(allocator);
+    std.debug.print("{any}\n", .{@as([*]u32, @ptrCast(ecs.ptr))[0..400]});
 }
