@@ -39,6 +39,34 @@ pub fn Registry(comptime IDType: type, comptime @"type": enum { component, tag }
     return struct {
         pub const Bitset: type = std.bit_set.StaticBitSet(len);
 
+        pub const Iterator = struct {
+            index: u32,
+            iterator: Bitset.Iterator(.{}),
+
+            pub inline fn init(set: Bitset) Iterator {
+                return .{
+                    .index = 0,
+                    .iterator = set.iterator(.{}),
+                };
+            }
+
+            pub inline fn next(self: *Iterator) ?struct {
+                index: u32,
+                id: IDType,
+            } {
+                if (self.iterator.next()) |capture| {
+                    defer self.index += 1;
+
+                    return .{
+                        .index = self.index,
+                        .id = @enumFromInt(capture),
+                    };
+                }
+
+                return null;
+            }
+        };
+
         pub const types: [len]type = init: {
             var new_types: [len]type = undefined;
 

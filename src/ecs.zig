@@ -274,20 +274,20 @@ pub fn Ecs(
             var entity_capacity: u32 = 0;
             inline for (templates, 0..) |template, i| {
                 entity_capacity += capacities[i];
-                inline for (template.components) |component| {
-                    component_counts[comptime component_registery.id(component).value()] += capacities[i];
+                inline for (template.components) |Component| {
+                    component_counts[comptime component_registery.id(Component).value()] += capacities[i];
                 }
             }
 
-            var offset: u32 = @intCast(layout.size() + ((EntityHeader.size() + @sizeOf(EntityID)) * entity_capacity));
+            var end: u32 = @intCast(layout.size() + ((EntityHeader.size() + @sizeOf(EntityID)) * entity_capacity));
 
-            inline for (component_registery.types[0..], 0..) |component, i| {
-                offset += -%offset & (@alignOf(component) - 1);
-                component_buffer_starts[i] = offset;
-                offset += component_counts[i];
+            inline for (component_registery.types[0..], 0..) |Component, i| {
+                end += -%end & (@alignOf(Component) - 1);
+                component_buffer_starts[i] = end;
+                end += component_counts[i];
             }
 
-            const length = offset;
+            const length = end;
 
             var ecs: Self = .{ .ptr = (try allocator.alignedAlloc(u8, .@"4", length)).ptr };
 
@@ -329,7 +329,7 @@ pub fn Ecs(
                 };
 
                 @memcpy(
-                    (ecs.offsets() + current_component_offset)[0..buffer_offsets.len],
+                    (@as([*]u32, @ptrCast(@alignCast(ecs.ptr + layout.regionStart("offsets")))) + current_component_offset)[0..buffer_offsets.len],
                     &buffer_offsets,
                 );
 
@@ -364,8 +364,8 @@ pub fn Ecs(
             return .{ .ptr = self.ptr + layout.regionStart("archetypes") + ArchetypeHeader.size() * id.value() };
         }
 
-        inline fn offsets(self: Self) [*]u32 {
-            return @ptrCast(@alignCast(self.ptr + layout.regionStart("offsets")));
+        inline fn offset(self: Self, archetype_header: ArchetypeHeader, index: u32) u32 {
+            return @as([*]u32, @ptrCast(@alignCast(self.ptr + layout.regionStart("offsets"))))[archetype_header.field("component_offset").* + index];
         }
 
         inline fn entity(self: Self, id: EntityID) EntityHeader {
@@ -374,12 +374,53 @@ pub fn Ecs(
             return .{ .ptr = self.ptr + layout.size() + (EntityHeader.size() * id.value()) };
         }
 
-        inline fn entities(self: Self) [*]EntityID {
-            return @ptrCast(@alignCast(self.ptr + layout.size() + (self.main().field("entity_capacity").* * EntityHeader.size())));
+        inline fn rowsEntityID(self: Self, archetype_header: ArchetypeHeader, row: Row) *EntityID {
+            return &(@as(
+                [*]EntityID,
+                @ptrCast(
+                    @alignCast(
+                        self.ptr + layout.size() + (self.main().field("entity_capacity").* * EntityHeader.size()),
+                    ),
+                ),
+            ) + archetype_header.field("entities_offset").*)[row.value()];
         }
 
-        inline fn buffers(self: Self) [*]u8 {
-            return self.ptr + layout.size() + (self.main().field("entity_capacity").* * (EntityHeader.size() + @sizeOf(EntityID)));
+        inline fn component(
+            self: Self,
+            ptr_offset: u32,
+            row: Row,
+            Component: type,
+        ) *Component {
+            return &@as([*]Component, @ptrCast(@alignCast(self.ptr
+                //
+            + layout.size()
+                //
+            + (self.main().field("entity_capacity").* * (EntityHeader.size() + @sizeOf(EntityID)))
+                //
+            + ptr_offset
+                //
+            )))[row.value()];
+        }
+
+        inline fn componentSlice(
+            self: Self,
+            ptr_offset: u32,
+            row: Row,
+            id: ComponentID,
+        ) []u8 {
+            const component_size = component_registery.sizes[id.value()];
+
+            return (self.ptr
+                //
+            + layout.size()
+                //
+            + (self.main().field("entity_capacity").* * (EntityHeader.size() + @sizeOf(EntityID)))
+                //
+            + ptr_offset
+                //
+            + row.value() * component_size
+                //
+            )[0..component_size];
         }
 
         // inline fn singleton(_: *Self, _: SingletonType) Singleton {
@@ -390,7 +431,9 @@ pub fn Ecs(
         pub inline fn entityIsValid(self: Self, entity_pointer: EntityPointer) bool {
             const entity_header = self.entity(entity_pointer.entity);
 
-            return entity_header.field("state").* != .dead and entity_header.field("generation").* == entity_pointer.generation;
+            return entity_header.field("state").* != .dead and
+                entity_header.field("generation").* == entity_pointer.generation and
+                entity_pointer.entity.value() < self.main().field("entity_count").*;
         }
 
         /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
@@ -418,19 +461,19 @@ pub fn Ecs(
                 defer self.main().field("dead_entity_count").* -= 1;
 
                 // FIXME: Very bad access pattern.
-                var i: u32 = 0;
-                while (i < self.main().field("entity_count").* and self.entity(.make(i)).field("state").* != .dead) {
-                    i += 1;
+                var id: EntityID = .make(0);
+                while (id.value() < self.main().field("entity_count").* and self.entity(id).field("state").* != .dead) {
+                    id = id.next();
                 }
 
                 // NOTE: Would mean that we didn't find any dead entity like dead_entity_count claimed there would be.
-                std.debug.assert(i < self.main().field("entity_count").*);
+                std.debug.assert(id.value() < self.main().field("entity_count").*);
 
-                self.entity(.make(i)).field("generation").* = self.entity(.make(i)).field("generation").next();
+                self.entity(id).field("generation").* = self.entity(id).field("generation").next();
 
                 break :init .{
-                    .entity = .make(i),
-                    .generation = self.entity(.make(i)).field("generation").*,
+                    .entity = id,
+                    .generation = self.entity(id).field("generation").*,
                 };
             };
 
@@ -449,24 +492,22 @@ pub fn Ecs(
             const bitset: component_registery.Bitset = component_registery.bitsets[entity_archetype.value()];
 
             inline for (template.components, 0..) |Component, i| {
-                const id: ComponentID = comptime component_registery.id(Component);
+                const index: u32 = comptime init: {
+                    const id: ComponentID = component_registery.id(Component);
 
-                const index = init: {
-                    var iterator = bitset.iterator(.{});
-                    var j: u32 = 0;
-                    while (iterator.next()) |index| : (j += 1) {
-                        if (index == id.value()) break :init j;
+                    var iterator: component_registery.Iterator = .init(bitset);
+
+                    while (iterator.next()) |capture| {
+                        if (capture.id == id) break :init capture.index;
                     }
 
-                    unreachable;
+                    @compileError("OH FUCK.");
                 };
 
-                const offset: u32 = self.offsets()[entity_archetype_header.field("component_offset").* + index];
-
-                @as([*]Component, @ptrCast(@alignCast(self.buffers() + offset)))[row.value()] = components[i];
+                self.component(self.offset(entity_archetype_header, index), row, Component).* = components[i];
             }
 
-            (self.entities() + entity_archetype_header.field("entities_offset").*)[row.value()] = new_entity_ptr.entity;
+            self.rowsEntityID(entity_archetype_header, row).* = new_entity_ptr.entity;
 
             entity_archetype_header.field("count").* += 1;
 
@@ -484,6 +525,8 @@ pub fn Ecs(
         /// Destroyes all entitys that where marked by destroyEntity.
         /// If any iterators include any of the destroyed entitys, using those iterators is undefiend behaviour.
         pub fn clearDestroyedEntitys(self: Self) void {
+            if (self.main().field("dead_entity_count").* == 0) return;
+
             const entity_count = self.main().field("entity_count").*;
 
             for (0..entity_count) |i| {
@@ -492,30 +535,31 @@ pub fn Ecs(
                 if (entity_header.field("state").* == .zombie) {
                     const entity_archetype_header: ArchetypeHeader = self.archetype(entity_header.field("archetype").*);
 
-                    if (entity_header.field("row").value() + 1 < entity_archetype_header.field("count").*) {
+                    const target_row: Row = entity_header.field("row").*;
+                    const end_row: Row = .make(entity_archetype_header.field("count").* - 1);
+
+                    std.debug.assert(target_row.value() <= end_row.value());
+
+                    if (target_row != end_row) {
                         const bitset: component_registery.Bitset = component_registery.bitsets[entity_header.field("archetype").value()];
 
-                        var iterator = bitset.iterator(.{});
-
-                        const target_row: Row = entity_header.field("row").*;
-                        const end_row: Row = .make(entity_archetype_header.field("count").* - 1);
-
-                        const end_entity: EntityID = (self.entities() + entity_archetype_header.field("entities_offset").*)[end_row.value()];
+                        const end_entity: EntityID = self.rowsEntityID(entity_archetype_header, end_row).*;
 
                         self.entity(end_entity).field("row").* = target_row;
+                        self.rowsEntityID(entity_archetype_header, target_row).* = end_entity;
 
-                        while (iterator.next()) |index| {
-                            const component_size: usize = component_registery.sizes[index];
+                        var iterator: component_registery.Iterator = .init(bitset);
+                        while (iterator.next()) |capture| {
+                            const ptr_offset: u32 = self.offset(entity_archetype_header, capture.index);
 
-                            const offset: u32 = self.offsets()[entity_archetype_header.field("component_offset").* + index];
-
-                            const target_slice: []u8 = (self.buffers() + offset + target_row.value() * component_size)[0..component_size];
-                            const end_slice: []u8 = (self.buffers() + offset + end_row.value() * component_size)[0..component_size];
-
-                            @memcpy(target_slice, end_slice);
+                            @memcpy(
+                                self.componentSlice(ptr_offset, target_row, capture.id),
+                                self.componentSlice(ptr_offset, end_row, capture.id),
+                            );
                         }
                     }
 
+                    self.main().field("dead_entity_count").* -= 1;
                     entity_archetype_header.field("count").* -= 1;
 
                     entity_header.field("state").* = .dead;
@@ -525,25 +569,32 @@ pub fn Ecs(
 
         /// Takes in a tag or a component and checks if the entity has it.
         pub inline fn entityHas(
-            _: *Self,
-            _: EntityPointer,
-            comptime _: type,
+            self: Self,
+            entity_pointer: EntityPointer,
+            comptime T: type,
         ) bool {
-            // std.debug.assert(self.entityIsValid(entity_ptr));
-            //
-            // if (@sizeOf(T) != 0) {
-            //     return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).component_bitset.isSet(comptime Components.id(T));
-            // }
-            //
-            // return self.archetype(self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype).tag_bitset.isSet(comptime Tags.id(T));
+            std.debug.assert(self.entityIsValid(entity_pointer));
+
+            const entity_header = self.entity(entity_pointer.entity);
+
+            if (comptime @sizeOf(T) != 0) {
+                return tag_registery.bitsets[entity_header.field("archetype").*].isSet(comptime tag_registery.id(T));
+            }
+
+            return component_registery.bitsets[entity_header.field("archetype").*].isSet(comptime component_registery.id(T));
         }
 
         pub fn getEntityComponent(
-            _: *Self,
-            _: EntityPointer,
-            comptime component: type,
-        ) ?*component {
-            @compileError("TODO");
+            self: *Self,
+            entity_pointer: EntityPointer,
+            comptime Component: type,
+        ) ?*Component {
+            const entity_header = self.entity(entity_pointer.entity);
+
+            if (component_registery.bitsets[entity_header.field("archetype").*].isSet(comptime component_registery.id(Component)))
+                return null;
+
+            // @compileError("TODO");
         }
 
         pub fn getEntityComponents(
