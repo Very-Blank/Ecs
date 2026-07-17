@@ -1,3 +1,4 @@
+// name: []const u8,
 components: []const type = &.{},
 tags: []const type = &.{},
 

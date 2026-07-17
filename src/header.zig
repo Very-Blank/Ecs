@@ -61,7 +61,7 @@ pub fn Header(
             );
         }
 
-        pub inline fn fieldByIndex(self: Self, comptime index: comptime_int) init: {
+        inline fn fieldByIndex(self: Self, comptime index: comptime_int) init: {
             if (fields.len <= index)
                 @compileError("Field index out of range.");
 

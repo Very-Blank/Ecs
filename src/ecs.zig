@@ -261,6 +261,8 @@ pub fn Ecs(
             }
         };
 
+        // FIXME: The current capacities is hard to read, maybe add names to Templates.
+        // That way we can do the same trick as in the Header.write(), where we take in a struct.
         pub fn init(capacities: [templates.len]u32, allocator: std.mem.Allocator) !Self {
             comptime if (!(ArchetypeHeader.arrayable()))
                 @compileError("The assumption of zero padding in between ArchetypeHeaders doesn't hold.");
@@ -585,45 +587,77 @@ pub fn Ecs(
         }
 
         pub fn getEntityComponent(
-            self: *Self,
+            self: Self,
             entity_pointer: EntityPointer,
             comptime Component: type,
         ) ?*Component {
-            const entity_header = self.entity(entity_pointer.entity);
+            std.debug.assert(self.entityIsValid(entity_pointer));
 
-            if (component_registery.bitsets[entity_header.field("archetype").*].isSet(comptime component_registery.id(Component)))
+            comptime if (@sizeOf(Component) != 0) {
+                @compileError(std.fmt.comptimePrint("Unexpected tag: {s}, expected a component.", .{@typeName(Component)}));
+            };
+
+            const entity_header: EntityHeader = self.entity(entity_pointer.entity);
+
+            const id: ComponentID = comptime component_registery.id(Component);
+            const bitset: component_registery.Bitset = component_registery.bitsets[entity_header.field("archetype").*];
+
+            if (!bitset.isSet(id.value()))
                 return null;
 
-            // @compileError("TODO");
+            return self.component(
+                self.offset(
+                    self.archetype(entity_header.field("archetype").*),
+                    init: {
+                        var iterator: component_registery.Iterator = .init(bitset);
+
+                        while (iterator.next()) |capture| {
+                            if (capture.id == id) break :init capture.index;
+                        }
+
+                        unreachable;
+                    },
+                ),
+                entity_header.field("row"),
+                Component,
+            );
         }
 
         pub fn getEntityComponents(
-            _: *Self,
-            _: EntityPointer,
+            self: Self,
+            entity_pointer: EntityPointer,
             comptime components: []const type,
         ) ?help.TupleOfItemPtrs(components) {
-            // comptime for (components) |component|
-            //     if (@sizeOf(component) == 0) @compileError("Unexpected tag " ++ @typeName(component) ++ ", expected a component.");
-            //
-            // std.debug.assert(self.entityIsValid(entity_ptr));
-            //
-            // const component_bitset: Components.Bitset = comptime Components.bitset(components);
-            //
-            // const entity_archetype: ArchetypeType = self.entity_to_archetype_map.get(entity_ptr.entity).?.archetype;
-            //
-            // if (self.archetype(entity_archetype).component_bitset.supersetOf(component_bitset)) {
-            //     const row = self.archetype(entity_archetype).getEntityRowIndex(entity_ptr);
-            //     var tuple: help.TupleOfItemPtrs(components) = undefined;
-            //
-            //     inline for (components, 0..) |component, i| {
-            //         const id = comptime Components.id(component);
-            //         tuple[i] = &self.archetype(entity_archetype).getItemArray(component, id)[row];
-            //     }
-            //
-            //     return tuple;
-            // }
-            //
-            // return null;
+            std.debug.assert(self.entityIsValid(entity_pointer));
+
+            comptime for (components) |Component|
+                @compileError(std.fmt.comptimePrint("Unexpected tag: {s}, expected a component.", .{@typeName(Component)}));
+
+            const entity_header: EntityHeader = self.entity(entity_pointer.entity);
+
+            const components_bitset: component_registery.Bitset = comptime component_registery.bitset(components);
+
+            const bitset: component_registery.Bitset = component_registery.bitsets[entity_header.field("archetype").*];
+
+            if (!bitset.supersetOf(components_bitset))
+                return null;
+
+            const tuple: help.TupleOfItemPtrs(components) = undefined;
+
+            const entity_archetype_header: ArchetypeHeader = self.archetype(entity_header.field("archetype").*);
+            const row: Row = entity_header.field("row").*;
+
+            inline for (components, 0..) |Component, i| {
+                const id: ComponentID = comptime component_registery.id(Component);
+
+                tuple[i] = self.component(self.offset(entity_archetype_header, init: {
+                    var iterator: component_registery.Iterator = .init(bitset);
+
+                    while (iterator.next()) |capture| {
+                        if (capture.id == id) break :init capture.index;
+                    }
+                }), row, Component);
+            }
         }
 
         /// This will transfer entity from one archetype to another while adding a component.
