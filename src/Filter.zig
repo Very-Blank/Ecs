@@ -1,5 +1,4 @@
-const Template = @import("Template.zig");
-
-component: type,
+Component: type,
 tags: []const type = &.{},
-exclude: Template = .{},
+exclude_components: []const type = &.{},
+exclude_tags: []const type = &.{},

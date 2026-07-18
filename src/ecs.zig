@@ -678,14 +678,13 @@ pub fn Ecs(
         /// The unique iterator type for this ecs.
         /// Unique because the iterator depends on the amount of matches.
         pub fn Iterator(filter: Filter) type {
-            @setEvalBranchQuota(10_000); // FIXME: I don't know how we hit 1000 so easily this is a bad fix.
             return GenericIterator(
                 filter.component,
                 Archetypes.matchingCount(
-                    &.{filter.component},
+                    &.{filter.Component},
                     filter.tags,
-                    filter.exclude.components,
-                    filter.exclude.tags,
+                    filter.exclude_components,
+                    filter.exclude_tags,
                 ),
             );
         }
@@ -693,31 +692,30 @@ pub fn Ecs(
         /// Gets an iterator specified by the filter.
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
         pub fn getIterator(_: *Self, filter: Filter) ?Iterator(filter) {
-            @compileError("TODO");
-            // const matching_archetypes = comptime Archetypes.getMatching(
-            //     &.{filter.component},
-            //     filter.tags,
-            //     filter.exclude.components,
-            //     filter.exclude.tags,
-            // );
-            //
-            // var component_arrays: [matching_archetypes.len][]filter.component = undefined;
-            // var entitys: [matching_archetypes.len][]EntityPointer = undefined;
-            // var buffer_len: usize = 0;
-            //
-            // for (matching_archetypes) |archetype_type| {
-            //     if (self.archetype(archetype_type).tuple_array_list.count > 0) {
-            //         component_arrays[buffer_len] = self.archetype(archetype_type).getItemArray(filter.component, comptime Components.id(filter.component));
-            //         entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
-            //         buffer_len += 1;
-            //     }
-            // }
-            //
-            // if (buffer_len == 0) {
-            //     return null;
-            // }
-            //
-            // return .init(component_arrays, entitys, @intCast(buffer_len));
+            const matching_archetypes = comptime Archetypes.getMatching(
+                &.{filter.Component},
+                filter.tags,
+                filter.exclude_components,
+                filter.exclude_tags,
+            );
+
+            var component_arrays: [matching_archetypes.len][]filter.Component = undefined;
+            var entitys: [matching_archetypes.len][]EntityID = undefined;
+            var buffer_len: usize = 0;
+
+            for (matching_archetypes) |archetype_type| {
+                if (self.archetype(archetype_type).tuple_array_list.count > 0) {
+                    component_arrays[buffer_len] = self.archetype(archetype_type).getItemArray(filter.component, comptime Components.id(filter.component));
+                    entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
+                    buffer_len += 1;
+                }
+            }
+
+            if (buffer_len == 0) {
+                return null;
+            }
+
+            return .init(component_arrays, entitys, @intCast(buffer_len));
         }
 
         /// The unique tuple iterator type for this ecs.
@@ -926,6 +924,8 @@ test "Init" {
     ecs.destroyEntity(first);
     std.debug.print("{any}\n", .{@as([*]u32, @ptrCast(ecs.ptr))[0..400]});
     ecs.clearDestroyedEntitys();
+
+    _ = EcsType.Iterator(.{ .component = DataX });
 
     std.debug.print("{any}\n", .{@as([*]u32, @ptrCast(ecs.ptr))[0..400]});
 }
