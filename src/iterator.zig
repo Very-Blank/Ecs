@@ -1,7 +1,5 @@
 const std = @import("std");
-const EntityPointer = @import("ecs.zig").EntityPointer;
 const EntityID = @import("ecs.zig").EntityID;
-const Generation = @import("ecs.zig").Generation;
 
 // FIXME:
 pub fn GenericIterator(comptime T: type, comptime size: usize) type {
@@ -10,71 +8,70 @@ pub fn GenericIterator(comptime T: type, comptime size: usize) type {
 
     return struct {
         arrays: [size][]T,
-        entity_ids: [size][]const EntityID,
-        generations: []const Generation,
-        len: u32,
+        ids: [size][]const EntityID,
+        count: u32,
 
-        current_index: u32,
-        current_array: u32,
-
-        current_entity_id: EntityID,
+        index: u32,
+        array: u32,
 
         const Self = @This();
 
-        pub fn init(arrays: [size][]T, entity_ids: [size][]const EntityID, generations: Generation, len: u32) Self {
-            std.debug.assert(0 < len);
-            for (arrays[0..len]) |array| {
-                std.debug.assert(array.len);
+        pub fn init(arrays: [size][]T, ids: [size][]const EntityID, count: u32) Self {
+            std.debug.assert(0 < count);
+
+            for (arrays[0..count]) |array| {
+                std.debug.assert(0 < array.len);
             }
 
             return .{
                 .arrays = arrays,
-                .entity_ids = entity_ids,
-                .generations = generations,
-                .len = len,
+                .ids = ids,
+                .count = count,
 
-                .current_index = 0,
-                .current_entity_id = entity_ids[0][0],
-                .current_array = 0,
+                .index = 0,
+                .array = 0,
             };
         }
 
         pub fn reset(self: *Self) void {
-            self.current_array = 0;
-            self.current_index = 0;
-            self.current_entity_id = self.entity_ids[0][0];
+            self.array = 0;
+            self.index = 0;
         }
 
-        /// Returns the next value in the buffers and whether or not there is next value.
-        /// If there is no next value next() will return the last element in the buffers.
+        /// Returns the next value in the iterated arrays, if one doesn't exist returns null.
         pub fn next(self: *Self) ?*T {
-            if (self.len <= self.current_array) {
+            if (self.count <= self.array) {
                 return null;
             }
 
-            const value: *T = &self.arrays[self.current_array][self.current_index];
-            self.current_entity_id = self.entity_ids[self.current_array][self.current_index];
+            const value: *T = &self.arrays[self.array][self.index];
 
-            if (self.current_index + 1 < self.arrays[self.current_array].len) {
-                self.current_index += 1;
+            if (self.index + 1 < self.arrays[self.array].len) {
+                self.index += 1;
 
                 return value;
             }
 
-            self.current_array += 1;
-            self.current_index = 0;
+            self.array += 1;
+            self.index = 0;
 
             return value;
         }
 
-        pub fn isNext(self: *Self) bool {
-            return self.current_array < self.len;
+        pub fn isNext(self: Self) bool {
+            return self.array < self.count;
         }
 
-        /// Returns current entity for components that where called with the last next()
-        /// If next() return null and this is called this returns the last valid entity.
-        pub fn currentEntity(self: *Self) EntityPointer {
-            return .{.entity = self.current_array, .generation = self.generations[self.]};
+        /// Returns the entity's id that owns the component that was returned in the next() call.
+        pub fn entity(self: Self) EntityID {
+            if (self.index == 0) {
+                if (0 < self.array)
+                    return self.arrays[self.array - 1][self.arrays[self.array - 1].len - 1];
+
+                return self.ids[0][0];
+            }
+
+            return self.arrays[self.array][self.index - 1];
         }
     };
 }

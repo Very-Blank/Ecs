@@ -79,8 +79,6 @@ const ArchetypeHeader = Header(&.{
     Field{ .name = "capacity", .type = u32 },
     Field{ .name = "component_offset", .type = u32 },
     Field{ .name = "entities_offset", .type = u32 },
-    // Field{ .name = "component_bitset", .type = std.bit_set.IntegerBitSet(128) },
-    // Field{ .name = "tag_bitset", .type = std.bit_set.IntegerBitSet(128) },
 }, 0);
 
 const EntityHeader = Header(&.{
@@ -352,7 +350,7 @@ pub fn Ecs(
             @compileError("TODO");
         }
 
-        pub fn deinit(self: Self, allocator: std.mem.Allocator) void {
+        pub inline fn deinit(self: Self, allocator: std.mem.Allocator) void {
             allocator.free(self.ptr[0..self.main().field("length").*]);
         }
 
@@ -387,6 +385,19 @@ pub fn Ecs(
             ) + archetype_header.field("entities_offset").*)[row.value()];
         }
 
+        inline fn archetypesEntities(self: Self, archetype_header: ArchetypeHeader) []const EntityID {
+            std.debug.assert(0 < archetype_header.field("count").*);
+
+            return (@as(
+                [*]EntityID,
+                @ptrCast(
+                    @alignCast(
+                        self.ptr + layout.size() + (self.main().field("entity_capacity").* * EntityHeader.size()),
+                    ),
+                ),
+            ) + archetype_header.field("entities_offset").*)[0..archetype_header.field("count").*];
+        }
+
         inline fn component(
             self: Self,
             ptr_offset: u32,
@@ -402,6 +413,25 @@ pub fn Ecs(
             + ptr_offset
                 //
             )))[row.value()];
+        }
+
+        inline fn componentArray(
+            self: Self,
+            ptr_offset: u32,
+            length: u32,
+            Component: type,
+        ) []Component {
+            std.debug.assert(0 < length);
+
+            return @as([*]Component, @ptrCast(@alignCast(self.ptr
+                //
+            + layout.size()
+                //
+            + (self.main().field("entity_capacity").* * (EntityHeader.size() + @sizeOf(EntityID)))
+                //
+            + ptr_offset
+                //
+            )))[0..length];
         }
 
         inline fn componentSlice(
@@ -430,12 +460,21 @@ pub fn Ecs(
         //     @compileError("TODO");
         // }
 
-        pub inline fn entityIsValid(self: Self, entity_pointer: EntityPointer) bool {
+        pub fn entityIsValid(self: Self, entity_pointer: EntityPointer) bool {
             const entity_header = self.entity(entity_pointer.entity);
 
             return entity_header.field("state").* != .dead and
                 entity_header.field("generation").* == entity_pointer.generation and
                 entity_pointer.entity.value() < self.main().field("entity_count").*;
+        }
+
+        pub fn entityPointer(self: Self, entity_id: EntityID) !EntityPointer {
+            const entity_header = self.entity(entity_id);
+
+            if (entity_header.field("state").* != .dead and entity_id.value() < self.main().field("entity_count").*)
+                return .{ .entity = entity_id, .generation = entity_header.field("generation") };
+
+            return error.EntityIDInvalid;
         }
 
         /// Creates an entity with the spesified components and tags, adding the components to the correct archetype.
@@ -570,7 +609,7 @@ pub fn Ecs(
         }
 
         /// Takes in a tag or a component and checks if the entity has it.
-        pub inline fn entityHas(
+        pub fn entityHas(
             self: Self,
             entity_pointer: EntityPointer,
             comptime T: type,
@@ -681,7 +720,7 @@ pub fn Ecs(
             return GenericIterator(
                 filter.component,
                 Archetypes.matchingCount(
-                    &.{filter.Component},
+                    &.{filter.component},
                     filter.tags,
                     filter.exclude_components,
                     filter.exclude_tags,
@@ -691,31 +730,48 @@ pub fn Ecs(
 
         /// Gets an iterator specified by the filter.
         /// Destroying or adding entity will possibly make iterator's pointers undefined.
-        pub fn getIterator(_: *Self, filter: Filter) ?Iterator(filter) {
+        pub fn getIterator(self: *Self, filter: Filter) ?Iterator(filter) {
             const matching_archetypes = comptime Archetypes.getMatching(
-                &.{filter.Component},
+                &.{filter.component},
                 filter.tags,
                 filter.exclude_components,
                 filter.exclude_tags,
             );
 
-            var component_arrays: [matching_archetypes.len][]filter.Component = undefined;
-            var entitys: [matching_archetypes.len][]EntityID = undefined;
-            var buffer_len: usize = 0;
+            var component_arrays: [matching_archetypes.len][]filter.component = undefined;
+            var entities: [matching_archetypes.len][]const EntityID = undefined;
+            var count: u32 = 0;
 
-            for (matching_archetypes) |archetype_type| {
-                if (self.archetype(archetype_type).tuple_array_list.count > 0) {
-                    component_arrays[buffer_len] = self.archetype(archetype_type).getItemArray(filter.component, comptime Components.id(filter.component));
-                    entitys[buffer_len] = self.archetype(archetype_type).row_to_entity_map.values();
-                    buffer_len += 1;
+            const id = comptime component_registery.id(filter.component);
+
+            for (matching_archetypes) |archetype_id| {
+                const archetype_header = self.archetype(archetype_id);
+
+                if (0 < archetype_header.field("count").*) {
+                    defer count += 1;
+
+                    component_arrays[count] = self.componentArray(
+                        self.offset(archetype_header, init: {
+                            var iterator: component_registery.Iterator = .init(component_registery.bitsets[archetype_id.value()]);
+
+                            while (iterator.next()) |capture| {
+                                if (capture.id == id) break :init capture.index;
+                            }
+
+                            unreachable;
+                        }),
+                        archetype_header.field("count").*,
+                        filter.component,
+                    );
+
+                    entities[count] = self.archetypesEntities(archetype_header);
                 }
             }
 
-            if (buffer_len == 0) {
+            if (count == 0)
                 return null;
-            }
 
-            return .init(component_arrays, entitys, @intCast(buffer_len));
+            return .init(component_arrays, entities, count);
         }
 
         /// The unique tuple iterator type for this ecs.
@@ -925,7 +981,11 @@ test "Init" {
     std.debug.print("{any}\n", .{@as([*]u32, @ptrCast(ecs.ptr))[0..400]});
     ecs.clearDestroyedEntitys();
 
-    _ = EcsType.Iterator(.{ .component = DataX });
+    var iterator = ecs.getIterator(.{ .component = DataX }).?;
+    while (iterator.next()) |ptr| {
+        std.debug.print("{any}\n", .{ptr.*});
+        ptr.* = .{ .x = 80085 };
+    }
 
     std.debug.print("{any}\n", .{@as([*]u32, @ptrCast(ecs.ptr))[0..400]});
 }
