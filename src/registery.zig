@@ -18,10 +18,14 @@ pub fn Registry(comptime IDType: type, comptime @"type": enum { component, tag }
         @compileError("Registery IDType has to be a non exhaustive enum.");
     }
 
-    const len = length: {
+    const len, const max = length: {
         var len: usize = 0;
+        var max: usize = 0;
 
         for (0..templates.len) |i| {
+            if (max < @field(templates[i], field).len)
+                max = @field(templates[i], field).len;
+
             outer: for (@field(templates[i], field)) |NewItem| {
                 for (0..i) |j| {
                     for (@field(templates[j], field)) |OldItem| {
@@ -33,39 +37,11 @@ pub fn Registry(comptime IDType: type, comptime @"type": enum { component, tag }
             }
         }
 
-        break :length len;
+        break :length .{ len, max };
     };
 
     return struct {
         pub const Bitset: type = std.bit_set.StaticBitSet(len);
-
-        pub const Iterator = struct {
-            index: u32,
-            iterator: Bitset.Iterator(.{}),
-
-            pub inline fn init(set: Bitset) Iterator {
-                return .{
-                    .index = 0,
-                    .iterator = set.iterator(.{}),
-                };
-            }
-
-            pub inline fn next(self: *Iterator) ?struct {
-                index: u32,
-                id: IDType,
-            } {
-                if (self.iterator.next()) |capture| {
-                    defer self.index += 1;
-
-                    return .{
-                        .index = self.index,
-                        .id = @enumFromInt(capture),
-                    };
-                }
-
-                return null;
-            }
-        };
 
         pub const types: [len]type = init: {
             var new_types: [len]type = undefined;
@@ -111,6 +87,24 @@ pub fn Registry(comptime IDType: type, comptime @"type": enum { component, tag }
             }
 
             break :init new_bitsets;
+        };
+
+        pub const indices: switch (@"type") {
+            .component => [templates.len][max]u32,
+            .tag => void,
+        } = switch (@"type") {
+            .component => init: {
+                var new_indices: [templates.len][max]u32 = .{.{0} ** max} ** templates.len;
+
+                for (templates, 0..) |template, i| {
+                    for (template.components, 0..) |Component, j| {
+                        new_indices[i][@intFromEnum(id(Component))] = j;
+                    }
+                }
+
+                break :init new_indices;
+            },
+            .tag => {},
         };
 
         pub fn bitset(comptime included: []const type) Bitset {

@@ -3,69 +3,73 @@ const help = @import("help.zig");
 
 const TupleOfBuffers = help.TupleOfBuffers;
 const TupleOfItemPtrs = help.TupleOfItemPtrs;
-const EntityPointer = @import("ecs.zig").EntityPointer;
+
+const EntityID = @import("ecs.zig").EntityID;
 
 pub fn GenericTupleIterator(comptime components: []const type, comptime size: usize) type {
     return struct {
-        tuple_of_buffers: TupleOfBuffers(components, size),
-        entities: [size][]const EntityPointer,
-        buffer_len: u32,
+        tuple_of_arrays: TupleOfBuffers(components, size),
+        entities: [size][]const EntityID,
+        count: u32,
 
-        current_entity: EntityPointer,
-        current_index: u32,
-        current_buffer: u32,
+        index: u32,
+        array: u32,
 
         const Self = @This();
 
-        pub fn init(tupleOfBuffers: TupleOfBuffers(components, size), entities: [size][]const EntityPointer, buffer_len: u32) Self {
+        pub fn init(tuple_of_arrays: TupleOfBuffers(components, size), ids: [size][]const EntityID, count: u32) Self {
             return .{
-                .tuple_of_buffers = tupleOfBuffers,
-                .entities = entities,
-                .buffer_len = buffer_len,
-                .current_entity = entities[0][0],
-                .current_index = 0,
-                .current_buffer = 0,
+                .tuple_of_arrays = tuple_of_arrays,
+                .entities = ids,
+                .count = count,
+
+                .index = 0,
+                .array = 0,
             };
         }
 
         pub fn reset(self: *Self) void {
-            self.current_buffer = 0;
-            self.current_index = 0;
+            self.array = 0;
+            self.index = 0;
         }
 
-        /// Returns the next value in the buffers and whether or not there is next value.
-        /// If there is no next value next() will return the last element in the buffers.
+        /// Returns the next value in the iterated arrays, if one doesn't exist returns null.
         pub fn next(self: *Self) ?TupleOfItemPtrs(components) {
-            if (self.buffer_len <= self.current_buffer) {
+            if (self.count <= self.array) {
                 return null;
             }
 
             var value: TupleOfItemPtrs(components) = undefined;
             inline for (0..components.len) |i| {
-                value[i] = &self.tuple_of_buffers[i][self.current_buffer][self.current_index];
-                self.current_entity = self.entities[self.current_buffer][self.current_index];
+                value[i] = &self.tuple_of_arrays[i][self.array][self.index];
             }
 
-            if (self.current_index + 1 < self.tuple_of_buffers[0][self.current_buffer].len) {
-                self.current_index += 1;
+            if (self.index + 1 < self.tuple_of_arrays[0][self.array].len) {
+                self.index += 1;
 
                 return value;
             }
 
-            self.current_buffer += 1;
-            self.current_index = 0;
+            self.array += 1;
+            self.index = 0;
 
             return value;
         }
 
         pub fn isNext(self: *Self) bool {
-            return self.current_buffer < self.buffer_len;
+            return self.array < self.count;
         }
 
-        /// Returns current entity for components that where called with the last next()
-        /// If next() return null and this is called this returns the last valid entity.
-        pub fn getCurrentEntity(self: *Self) EntityPointer {
-            return self.current_entity;
+        /// Returns the entity's id that owns the component that was returned in the next() call.
+        pub fn entity(self: Self) EntityID {
+            if (self.index == 0) {
+                if (0 < self.array)
+                    return self.arrays[self.array - 1][self.arrays[self.array - 1].len - 1];
+
+                return self.ids[0][0];
+            }
+
+            return self.arrays[self.array][self.index - 1];
         }
     };
 }
